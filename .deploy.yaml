@@ -1,0 +1,208 @@
+# Deployment manifest for the self-hosted Supabase stack.
+# Source: forked from supabase/supabase (this repo's master is upstream-tracking
+# plus this manifest layer at the repo root). 13 containers (studio, kong,
+# auth, rest, realtime, storage, imgproxy, meta, functions, analytics,
+# vector, db, supavisor) are deployed as a single ssl-service "supabase"
+# service via the upstream `docker/docker-compose.yml`.
+#
+# Read by ssl-service's admin platform on every deploy.
+#
+# Flow on a target node (xcenter):
+#   1. git clone (or pull) bitsfactor/supabase into /opt/supabase
+#   2. write a fresh .env at /opt/supabase/.env from `defaults` + per-deploy
+#      overrides + `secrets`
+#   3. run scripts/pre_deploy.sh — symlinks docker/.env -> ../.env so
+#      upstream compose (which runs from the docker/ subdir and looks for
+#      docker/.env by default) sees the same env
+#   4. docker compose -f docker/docker-compose.yml -p supabase up -d --build
+#   5. poll http://localhost:61222/auth/v1/health until 200
+#   6. Caddy on xcenter routes supabase.develop.cc -> localhost:61222 (Kong)
+#
+# Coexists on xcenter with chat:3210 / chatbot:3220. Kong takes 61222
+# (HTTP, fronted by Caddy for TLS) and 61223 (Kong's internal HTTPS,
+# unused but compose requires the port to be set).
+
+service: supabase
+runtime: compose
+compose_file: docker/docker-compose.yml
+install_dir_template: /opt/{name}
+
+# Required at deploy time. Each maps either to a system_config registry
+# entry (see `secrets:` below) or must be set by the operator in the
+# deploy form (URLs).
+required_env:
+  # Postgres / cryptography — generated once via docker/utils/generate-keys.sh
+  # and docker/utils/add-new-auth-keys.sh, stored in system_config.
+  - POSTGRES_PASSWORD
+  - JWT_SECRET
+  - ANON_KEY
+  - SERVICE_ROLE_KEY
+  - SUPABASE_PUBLISHABLE_KEY
+  - SUPABASE_SECRET_KEY
+  - JWT_KEYS
+  - JWT_JWKS
+  - ANON_KEY_ASYMMETRIC
+  - SERVICE_ROLE_KEY_ASYMMETRIC
+  - SECRET_KEY_BASE
+  - VAULT_ENC_KEY
+  - PG_META_CRYPTO_KEY
+  - LOGFLARE_PUBLIC_ACCESS_TOKEN
+  - LOGFLARE_PRIVATE_ACCESS_TOKEN
+  - S3_PROTOCOL_ACCESS_KEY_ID
+  - S3_PROTOCOL_ACCESS_KEY_SECRET
+
+  # Studio Basic Auth
+  - DASHBOARD_USERNAME
+  - DASHBOARD_PASSWORD
+
+  # Public URLs — must equal whatever Caddy routes to localhost:61222,
+  # otherwise Auth callbacks / email links break.
+  - SUPABASE_PUBLIC_URL
+  - API_EXTERNAL_URL
+
+# Defaults pre-filled in the deploy form. Operator can override per-deploy.
+defaults:
+  TZ: Asia/Shanghai
+
+  # ---- public URL (production) ------------------------------------
+  # `supabase.develop.cc` is what Caddy routes to localhost:61222 on xcenter.
+  SUPABASE_PUBLIC_URL: https://supabase.develop.cc
+  API_EXTERNAL_URL: https://supabase.develop.cc
+  SITE_URL: https://supabase.develop.cc
+  ADDITIONAL_REDIRECT_URLS: ""
+
+  # ---- ports (xcenter — avoids chat:3210, chatbot:3220) ------------
+  KONG_HTTP_PORT: "61222"   # Caddy reverse-proxies here for HTTPS
+  KONG_HTTPS_PORT: "61223"  # required by compose, not externally exposed
+  POSTGRES_PORT: "5432"     # in-container; host mapping disabled by default
+  POOLER_PROXY_PORT_TRANSACTION: "6543"
+
+  # ---- Postgres ----------------------------------------------------
+  POSTGRES_HOST: db
+  POSTGRES_DB: postgres
+
+  # ---- Supavisor ---------------------------------------------------
+  POOLER_DEFAULT_POOL_SIZE: "20"
+  POOLER_MAX_CLIENT_CONN: "100"
+  POOLER_DB_POOL_SIZE: "5"
+  # Tenant id is embedded in connection strings; pin to org name so
+  # client DSNs are stable across redeploys.
+  POOLER_TENANT_ID: bitsfactor
+
+  # ---- Studio ------------------------------------------------------
+  STUDIO_DEFAULT_ORGANIZATION: BitsFactor
+  STUDIO_DEFAULT_PROJECT: Default Project
+  # Studio's optional AI assistant — leave empty to keep the panel off.
+  OPENAI_API_KEY: ""
+
+  # ---- Auth (GoTrue) ----------------------------------------------
+  JWT_EXPIRY: "3600"
+  DISABLE_SIGNUP: "false"
+  MAILER_URLPATHS_CONFIRMATION: "/auth/v1/verify"
+  MAILER_URLPATHS_INVITE: "/auth/v1/verify"
+  MAILER_URLPATHS_RECOVERY: "/auth/v1/verify"
+  MAILER_URLPATHS_EMAIL_CHANGE: "/auth/v1/verify"
+  ENABLE_EMAIL_SIGNUP: "true"
+  ENABLE_EMAIL_AUTOCONFIRM: "false"
+  ENABLE_ANONYMOUS_USERS: "false"
+  # Phone auth disabled by default — upstream defaults to true which is
+  # surprising for a fresh self-host (no SMS provider configured).
+  ENABLE_PHONE_SIGNUP: "false"
+  ENABLE_PHONE_AUTOCONFIRM: "false"
+
+  # ---- Email (default off — production SMTP plugged in later) ----
+  # Stub values keep GoTrue from refusing to boot; outbound mail will
+  # fail until operator fills in real SMTP credentials.
+  SMTP_ADMIN_EMAIL: admin@develop.cc
+  SMTP_HOST: supabase-mail
+  SMTP_PORT: "2500"
+  SMTP_USER: ""
+  SMTP_PASS: ""
+  SMTP_SENDER_NAME: BitsFactor
+
+  # ---- Storage -----------------------------------------------------
+  GLOBAL_S3_BUCKET: stub
+  REGION: stub
+  STORAGE_TENANT_ID: stub
+  # Only used if operator opts into the bundled MinIO via
+  # `-f docker-compose.s3.yml` — kept as upstream stubs.
+  MINIO_ROOT_USER: supa-storage
+  MINIO_ROOT_PASSWORD: secret1234
+
+  # ---- Edge Functions ---------------------------------------------
+  FUNCTIONS_VERIFY_JWT: "false"
+
+  # ---- PostgREST ---------------------------------------------------
+  PGRST_DB_SCHEMAS: public,storage,graphql_public
+  PGRST_DB_MAX_ROWS: "1000"
+  PGRST_DB_EXTRA_SEARCH_PATH: public
+
+  # ---- Logflare / Vector -------------------------------------------
+  DOCKER_SOCKET_LOCATION: /var/run/docker.sock
+  GOOGLE_PROJECT_ID: stub
+  GOOGLE_PROJECT_NUMBER: stub
+
+  # ---- imgproxy ----------------------------------------------------
+  IMGPROXY_AUTO_WEBP: "true"
+
+  # ---- Bundled Caddy / Nginx (NOT used — ssl-service Caddy fronts) -
+  # We don't run upstream's docker-compose.caddy.yml; placeholders
+  # silence compose substitution warnings.
+  PROXY_DOMAIN: supabase.develop.cc
+  CERTBOT_EMAIL: admin@develop.cc
+
+# Secrets resolved by ssl-service from system_config at deploy time.
+# Generate the underlying values once locally:
+#   sh ./docker/utils/generate-keys.sh        → JWT_SECRET / ANON_KEY / SERVICE_ROLE_KEY
+#   sh ./docker/utils/add-new-auth-keys.sh    → JWT_KEYS / JWT_JWKS / SUPABASE_PUBLISHABLE_KEY
+#                                               / SUPABASE_SECRET_KEY / ANON_KEY_ASYMMETRIC
+#                                               / SERVICE_ROLE_KEY_ASYMMETRIC
+# then paste each value into admin → System Config under the listed key.
+secrets:
+  - { env: POSTGRES_PASSWORD,             from: system_config:supabase.db.password }
+  - { env: JWT_SECRET,                    from: system_config:supabase.auth.jwt_secret }
+  - { env: ANON_KEY,                      from: system_config:supabase.auth.anon_key }
+  - { env: SERVICE_ROLE_KEY,              from: system_config:supabase.auth.service_role_key }
+  - { env: SUPABASE_PUBLISHABLE_KEY,      from: system_config:supabase.auth.publishable_key }
+  - { env: SUPABASE_SECRET_KEY,           from: system_config:supabase.auth.secret_key }
+  - { env: JWT_KEYS,                      from: system_config:supabase.auth.jwt_keys }
+  - { env: JWT_JWKS,                      from: system_config:supabase.auth.jwt_jwks }
+  - { env: ANON_KEY_ASYMMETRIC,           from: system_config:supabase.auth.anon_key_asymmetric }
+  - { env: SERVICE_ROLE_KEY_ASYMMETRIC,   from: system_config:supabase.auth.service_role_key_asymmetric }
+  - { env: SECRET_KEY_BASE,               from: system_config:supabase.realtime.secret_key_base }
+  - { env: VAULT_ENC_KEY,                 from: system_config:supabase.supavisor.vault_enc_key }
+  - { env: PG_META_CRYPTO_KEY,            from: system_config:supabase.meta.crypto_key }
+  - { env: LOGFLARE_PUBLIC_ACCESS_TOKEN,  from: system_config:supabase.logflare.public_token }
+  - { env: LOGFLARE_PRIVATE_ACCESS_TOKEN, from: system_config:supabase.logflare.private_token }
+  - { env: S3_PROTOCOL_ACCESS_KEY_ID,     from: system_config:supabase.storage.s3_access_key_id }
+  - { env: S3_PROTOCOL_ACCESS_KEY_SECRET, from: system_config:supabase.storage.s3_access_key_secret }
+  - { env: DASHBOARD_USERNAME,            from: system_config:supabase.dashboard.username }
+  - { env: DASHBOARD_PASSWORD,            from: system_config:supabase.dashboard.password }
+
+# Caddy uses these to suggest a route. Only 61222 is meant to be
+# externally reachable (via the parent ssl-service Caddy).
+exposed_ports:
+  - 61222
+
+# Healthcheck — Kong proxies /auth/v1/health to the auth container's
+# /health endpoint, which returns 200 even before any user signs up.
+# 180s window covers Postgres initdb + Realtime migrations on a cold node.
+healthcheck:
+  url: http://localhost:61222/auth/v1/health
+  expect_status: 200
+  timeout_seconds: 180
+  retries: 36
+  interval_seconds: 5
+
+depends_on: []
+
+hooks:
+  pre_deploy: scripts/pre_deploy.sh
+
+# Persistent dirs the platform pre-creates. Currently unused by the
+# stack (Postgres data lives under docker/volumes/db, committed in the
+# upstream repo) — kept for parity with sibling services and reserved
+# for future host-side log collection.
+volumes:
+  - /opt/{name}/data
+  - /opt/{name}/logs
