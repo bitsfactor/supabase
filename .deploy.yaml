@@ -151,33 +151,15 @@ defaults:
   PROXY_DOMAIN: supabase.develop.cc
   CERTBOT_EMAIL: admin@develop.cc
 
-# Secrets resolved by ssl-service from system_config at deploy time.
-# Generate the underlying values once locally:
+# Per-service secrets (JWT keys, dashboard creds, S3 keys, OPENAI key,
+# etc.) live in services.default_env on the service row — not in
+# system_config. Generate the JWT/key bundle once locally:
 #   sh ./docker/utils/generate-keys.sh        → JWT_SECRET / ANON_KEY / SERVICE_ROLE_KEY
 #   sh ./docker/utils/add-new-auth-keys.sh    → JWT_KEYS / JWT_JWKS / SUPABASE_PUBLISHABLE_KEY
 #                                               / SUPABASE_SECRET_KEY / ANON_KEY_ASYMMETRIC
 #                                               / SERVICE_ROLE_KEY_ASYMMETRIC
-# then paste each value into admin → System Config under the listed key.
-secrets:
-  - { env: POSTGRES_PASSWORD,             from: system_config:supabase.db.password }
-  - { env: JWT_SECRET,                    from: system_config:supabase.auth.jwt_secret }
-  - { env: ANON_KEY,                      from: system_config:supabase.auth.anon_key }
-  - { env: SERVICE_ROLE_KEY,              from: system_config:supabase.auth.service_role_key }
-  - { env: SUPABASE_PUBLISHABLE_KEY,      from: system_config:supabase.auth.publishable_key }
-  - { env: SUPABASE_SECRET_KEY,           from: system_config:supabase.auth.secret_key }
-  - { env: JWT_KEYS,                      from: system_config:supabase.auth.jwt_keys }
-  - { env: JWT_JWKS,                      from: system_config:supabase.auth.jwt_jwks }
-  - { env: ANON_KEY_ASYMMETRIC,           from: system_config:supabase.auth.anon_key_asymmetric }
-  - { env: SERVICE_ROLE_KEY_ASYMMETRIC,   from: system_config:supabase.auth.service_role_key_asymmetric }
-  - { env: SECRET_KEY_BASE,               from: system_config:supabase.realtime.secret_key_base }
-  - { env: VAULT_ENC_KEY,                 from: system_config:supabase.supavisor.vault_enc_key }
-  - { env: PG_META_CRYPTO_KEY,            from: system_config:supabase.meta.crypto_key }
-  - { env: LOGFLARE_PUBLIC_ACCESS_TOKEN,  from: system_config:supabase.logflare.public_token }
-  - { env: LOGFLARE_PRIVATE_ACCESS_TOKEN, from: system_config:supabase.logflare.private_token }
-  - { env: S3_PROTOCOL_ACCESS_KEY_ID,     from: system_config:supabase.storage.s3_access_key_id }
-  - { env: S3_PROTOCOL_ACCESS_KEY_SECRET, from: system_config:supabase.storage.s3_access_key_secret }
-  - { env: DASHBOARD_USERNAME,            from: system_config:supabase.dashboard.username }
-  - { env: DASHBOARD_PASSWORD,            from: system_config:supabase.dashboard.password }
+# then paste each value into admin → Services → supabase → Edit.
+secrets: []
 
 # Caddy uses these to suggest a route. Only 61222 is meant to be
 # externally reachable (via the parent ssl-service Caddy).
