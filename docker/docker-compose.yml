@@ -518,6 +518,13 @@ services:
     container_name: supabase-db
     image: supabase/postgres:15.8.1.085
     restart: unless-stopped
+    # Expose Postgres directly to the host for cloud-like "Direct connection"
+    # access (Supavisor 2.7.4 fumbles psql 17's protocol extensions, so we
+    # bypass the pooler for admin clients). Host port is configurable via
+    # POSTGRES_HOST_PORT — keep off the standard 5432 since Supavisor owns
+    # that. Pooler (5432/6543) stays on for app traffic.
+    ports:
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
     volumes:
       - ./volumes/db/realtime.sql:/docker-entrypoint-initdb.d/migrations/99-realtime.sql:Z
       # Must be superuser to create event trigger
