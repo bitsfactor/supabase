@@ -2,173 +2,414 @@
 # Source: forked from supabase/supabase (this repo's master is upstream-tracking
 # plus this manifest layer at the repo root). 13 containers (studio, kong,
 # auth, rest, realtime, storage, imgproxy, meta, functions, analytics,
-# vector, db, supavisor) are deployed as a single ssl-service "supabase"
-# service via the upstream `docker/docker-compose.yml`.
-#
-# Read by ssl-service's admin platform on every deploy.
+# vector, db, supavisor) deployed as a single `supabase` service via
+# `docker/docker-compose.yml`.
 #
 # Flow on a target node (xcenter):
 #   1. git clone (or pull) bitsfactor/supabase into /opt/supabase
-#   2. write a fresh .env at /opt/supabase/.env from `defaults` + per-deploy
-#      overrides + `secrets`
+#   2. write a fresh .env at /opt/supabase/.env from yaml config_schema
+#      defaults + services.config_schema overrides + per-deploy overrides
 #   3. run scripts/pre_deploy.sh — symlinks docker/.env -> ../.env so
-#      upstream compose (which runs from the docker/ subdir and looks for
-#      docker/.env by default) sees the same env
+#      upstream compose (which runs from docker/ and looks for docker/.env
+#      by default) sees the same env
 #   4. docker compose -f docker/docker-compose.yml -p supabase up -d --build
 #   5. poll http://localhost:61222/auth/v1/health until 200
 #   6. Caddy on xcenter routes supabase.develop.cc -> localhost:61222 (Kong)
-#
-# Coexists on xcenter with chat:3210 / chatbot:3220. Kong takes 61222
-# (HTTP, fronted by Caddy for TLS) and 61223 (Kong's internal HTTPS,
-# unused but compose requires the port to be set).
 
 service: supabase
 runtime: compose
 compose_file: docker/docker-compose.yml
 install_dir_template: /opt/{name}
 
-# Required at deploy time. Each maps either to a system_config registry
-# entry (see `secrets:` below) or must be set by the operator in the
-# deploy form (URLs).
-required_env:
-  # Postgres / cryptography — generated once via docker/utils/generate-keys.sh
-  # and docker/utils/add-new-auth-keys.sh, stored in system_config.
-  - POSTGRES_PASSWORD
-  - JWT_SECRET
-  - ANON_KEY
-  - SERVICE_ROLE_KEY
-  - SUPABASE_PUBLISHABLE_KEY
-  - SUPABASE_SECRET_KEY
-  - JWT_KEYS
-  - JWT_JWKS
-  - ANON_KEY_ASYMMETRIC
-  - SERVICE_ROLE_KEY_ASYMMETRIC
-  - SECRET_KEY_BASE
-  - VAULT_ENC_KEY
-  - PG_META_CRYPTO_KEY
-  - LOGFLARE_PUBLIC_ACCESS_TOKEN
-  - LOGFLARE_PRIVATE_ACCESS_TOKEN
-  - S3_PROTOCOL_ACCESS_KEY_ID
-  - S3_PROTOCOL_ACCESS_KEY_SECRET
+# Every configurable env, in one place. Sensitive values
+# (JWT/Postgres/S3/dashboard secrets) have `required: true` but NO
+# `default` — they live only in services.config_schema (admin Config
+# right-column). Non-sensitive defaults (URLs, ports, feature flags,
+# stubs) inline here.
+config_schema:
+  # ===== Public-facing URLs (production = supabase.develop.cc) =====
+  - key: SUPABASE_PUBLIC_URL
+    label: Public URL
+    type: text
+    required: true
+    default: https://supabase.develop.cc
+    help: Browser-facing https URL. Must equal whatever Caddy routes to localhost:61222.
+  - key: API_EXTERNAL_URL
+    label: API external URL
+    type: text
+    required: true
+    default: https://supabase.develop.cc
+    help: External URL the Kong gateway is reachable at.
+  - key: SITE_URL
+    label: Site URL
+    type: text
+    default: https://supabase.develop.cc
+    help: Default site URL injected into auth callbacks / emails.
+  - key: ADDITIONAL_REDIRECT_URLS
+    label: Additional redirect URLs
+    type: text
+    default: ""
+    help: Comma-separated list of extra allowed auth redirect URLs.
 
-  # Studio Basic Auth
-  - DASHBOARD_USERNAME
-  - DASHBOARD_PASSWORD
+  # ===== Kong / Postgres / pooler ports =====
+  - key: KONG_HTTP_PORT
+    label: Kong HTTP port (host-exposed)
+    type: integer
+    min: 1
+    max: 65535
+    default: "61222"
+    help: External port; Caddy reverse-proxies here for HTTPS.
+  - key: KONG_HTTPS_PORT
+    label: Kong HTTPS port
+    type: integer
+    min: 1
+    max: 65535
+    default: "61223"
+    help: Compose requires it to be set; not externally exposed.
+  - key: POSTGRES_PORT
+    label: Postgres in-container port
+    type: integer
+    min: 1
+    max: 65535
+    default: "5432"
+    help: In-container port; host mapping disabled by default.
+  - key: POOLER_PROXY_PORT_TRANSACTION
+    label: Supavisor transaction-pool port
+    type: integer
+    min: 1
+    max: 65535
+    default: "6543"
+    help: Supavisor's transaction-mode pool port.
 
-  # Public URLs — must equal whatever Caddy routes to localhost:61222,
-  # otherwise Auth callbacks / email links break.
-  - SUPABASE_PUBLIC_URL
-  - API_EXTERNAL_URL
+  # ===== Postgres =====
+  - key: POSTGRES_HOST
+    label: Postgres host
+    type: text
+    default: db
+    help: Internal docker hostname of the Postgres container.
+  - key: POSTGRES_DB
+    label: Postgres database
+    type: text
+    default: postgres
+    help: Default Postgres database name.
+  - key: POSTGRES_PASSWORD
+    label: Postgres password
+    type: password
+    required: true
+    help: Postgres superuser password. Generated by docker/utils/generate-keys.sh.
 
-# Defaults pre-filled in the deploy form. Operator can override per-deploy.
-defaults:
-  TZ: Asia/Shanghai
+  # ===== JWT / asymmetric / publishable / service keys =====
+  - key: JWT_SECRET
+    label: JWT secret (HS256)
+    type: password
+    required: true
+    help: Symmetric JWT signing secret. Generated by docker/utils/generate-keys.sh.
+  - key: ANON_KEY
+    label: Anon JWT
+    type: password
+    required: true
+    help: Public anon JWT minted from JWT_SECRET.
+  - key: SERVICE_ROLE_KEY
+    label: Service role JWT
+    type: password
+    required: true
+    help: Server-side service-role JWT minted from JWT_SECRET.
+  - key: JWT_KEYS
+    label: Asymmetric JWT key set
+    type: password
+    required: true
+    help: ES256 key set (JWK). Generated by docker/utils/add-new-auth-keys.sh.
+  - key: JWT_JWKS
+    label: JWT JWKS (public)
+    type: password
+    required: true
+    help: Public JWKS exposed at /auth/v1/.well-known/jwks.json.
+  - key: ANON_KEY_ASYMMETRIC
+    label: Anon JWT (asymmetric)
+    type: password
+    required: true
+    help: Asymmetric anon JWT signed with JWT_KEYS.
+  - key: SERVICE_ROLE_KEY_ASYMMETRIC
+    label: Service role JWT (asymmetric)
+    type: password
+    required: true
+    help: Asymmetric service-role JWT signed with JWT_KEYS.
+  - key: SUPABASE_PUBLISHABLE_KEY
+    label: Publishable key (sb_publishable_*)
+    type: password
+    required: true
+    help: New-format publishable key. Generated by docker/utils/add-new-auth-keys.sh.
+  - key: SUPABASE_SECRET_KEY
+    label: Secret key (sb_secret_*)
+    type: password
+    required: true
+    help: New-format secret key. Server-side only.
 
-  # ---- public URL (production) ------------------------------------
-  # `supabase.develop.cc` is what Caddy routes to localhost:61222 on xcenter.
-  SUPABASE_PUBLIC_URL: https://supabase.develop.cc
-  API_EXTERNAL_URL: https://supabase.develop.cc
-  SITE_URL: https://supabase.develop.cc
-  ADDITIONAL_REDIRECT_URLS: ""
+  # ===== Other crypto / tokens =====
+  - key: SECRET_KEY_BASE
+    label: Phoenix secret_key_base
+    type: password
+    required: true
+    help: Phoenix-style symmetric secret for Realtime sessions.
+  - key: VAULT_ENC_KEY
+    label: pgsodium / Vault encryption key
+    type: password
+    required: true
+    help: Encryption key for pgsodium / Vault secrets.
+  - key: PG_META_CRYPTO_KEY
+    label: postgres-meta crypto key
+    type: password
+    required: true
+    help: Encryption key for postgres-meta's internal secrets.
+  - key: LOGFLARE_PUBLIC_ACCESS_TOKEN
+    label: Logflare public token
+    type: password
+    required: true
+    help: Public ingest token Logflare exposes to source clients.
+  - key: LOGFLARE_PRIVATE_ACCESS_TOKEN
+    label: Logflare private token
+    type: password
+    required: true
+    help: Private API token Logflare uses server-side.
 
-  # ---- ports (xcenter — avoids chat:3210, chatbot:3220) ------------
-  KONG_HTTP_PORT: "61222"   # Caddy reverse-proxies here for HTTPS
-  KONG_HTTPS_PORT: "61223"  # required by compose, not externally exposed
-  POSTGRES_PORT: "5432"     # in-container; host mapping disabled by default
-  POOLER_PROXY_PORT_TRANSACTION: "6543"
+  # ===== Studio dashboard basic auth =====
+  - key: DASHBOARD_USERNAME
+    label: Studio dashboard username
+    type: text
+    required: true
+    default: develop
+    help: Kong basic-auth username protecting Studio.
+  - key: DASHBOARD_PASSWORD
+    label: Studio dashboard password
+    type: password
+    required: true
+    help: Kong basic-auth password protecting Studio.
 
-  # ---- Postgres ----------------------------------------------------
-  POSTGRES_HOST: db
-  POSTGRES_DB: postgres
+  # ===== Studio settings =====
+  - key: STUDIO_DEFAULT_ORGANIZATION
+    label: Studio default organization
+    type: text
+    default: BitsFactor
+    help: Default org name shown in Studio.
+  - key: STUDIO_DEFAULT_PROJECT
+    label: Studio default project
+    type: text
+    default: Default Project
+    help: Default project name shown in Studio.
+  - key: OPENAI_API_KEY
+    label: Studio AI assistant — OpenAI API key
+    type: password
+    help: >-
+      Optional OpenAI key powering Studio's AI assistant panel. Leave
+      empty to keep the panel off.
+  - key: OPENAI_BASE_URL
+    label: Studio AI — OpenAI proxy URL
+    type: text
+    default: https://api.develop.cc/v1
+    help: Endpoint for the OpenAI-compatible proxy.
 
-  # ---- Supavisor ---------------------------------------------------
-  POOLER_DEFAULT_POOL_SIZE: "20"
-  POOLER_MAX_CLIENT_CONN: "100"
-  POOLER_DB_POOL_SIZE: "5"
-  # Tenant id is embedded in connection strings; pin to org name so
-  # client DSNs are stable across redeploys.
-  POOLER_TENANT_ID: bitsfactor
+  # ===== Supavisor pooler tuning =====
+  - key: POOLER_DEFAULT_POOL_SIZE
+    label: Supavisor default pool size
+    type: integer
+    min: 1
+    default: "20"
+    help: Default upstream pool size per tenant.
+  - key: POOLER_MAX_CLIENT_CONN
+    label: Supavisor max client connections
+    type: integer
+    min: 1
+    default: "100"
+    help: Maximum concurrent client connections.
+  - key: POOLER_DB_POOL_SIZE
+    label: Supavisor per-DB pool size
+    type: integer
+    min: 1
+    default: "5"
+    help: Pool size per database.
+  - key: POOLER_TENANT_ID
+    label: Supavisor tenant id
+    type: text
+    default: bitsfactor
+    help: Embedded in connection strings — pin to org name for stability.
 
-  # ---- Studio ------------------------------------------------------
-  STUDIO_DEFAULT_ORGANIZATION: BitsFactor
-  STUDIO_DEFAULT_PROJECT: Default Project
-  # Studio's optional AI assistant — leave empty to keep the panel off.
-  OPENAI_API_KEY: ""
+  # ===== Auth (GoTrue) =====
+  - key: JWT_EXPIRY
+    label: JWT expiry (seconds)
+    type: integer
+    min: 60
+    default: "3600"
+    help: How long signed access tokens stay valid.
+  - key: DISABLE_SIGNUP
+    label: Disable signup
+    type: boolean
+    default: "false"
+    help: true = block new signups entirely.
+  - key: ENABLE_EMAIL_SIGNUP
+    label: Email signup enabled
+    type: boolean
+    default: "true"
+  - key: ENABLE_EMAIL_AUTOCONFIRM
+    label: Email auto-confirm
+    type: boolean
+    default: "false"
+    help: Auto-mark new emails as confirmed without verification.
+  - key: ENABLE_ANONYMOUS_USERS
+    label: Allow anonymous users
+    type: boolean
+    default: "false"
+  - key: ENABLE_PHONE_SIGNUP
+    label: Phone signup enabled
+    type: boolean
+    default: "false"
+    help: Upstream defaults to true; disabled here since no SMS provider wired up.
+  - key: ENABLE_PHONE_AUTOCONFIRM
+    label: Phone auto-confirm
+    type: boolean
+    default: "false"
+  - key: MAILER_URLPATHS_CONFIRMATION
+    label: Mailer — confirmation path
+    type: text
+    default: /auth/v1/verify
+  - key: MAILER_URLPATHS_INVITE
+    label: Mailer — invite path
+    type: text
+    default: /auth/v1/verify
+  - key: MAILER_URLPATHS_RECOVERY
+    label: Mailer — recovery path
+    type: text
+    default: /auth/v1/verify
+  - key: MAILER_URLPATHS_EMAIL_CHANGE
+    label: Mailer — email change path
+    type: text
+    default: /auth/v1/verify
 
-  # ---- Auth (GoTrue) ----------------------------------------------
-  JWT_EXPIRY: "3600"
-  DISABLE_SIGNUP: "false"
-  MAILER_URLPATHS_CONFIRMATION: "/auth/v1/verify"
-  MAILER_URLPATHS_INVITE: "/auth/v1/verify"
-  MAILER_URLPATHS_RECOVERY: "/auth/v1/verify"
-  MAILER_URLPATHS_EMAIL_CHANGE: "/auth/v1/verify"
-  ENABLE_EMAIL_SIGNUP: "true"
-  ENABLE_EMAIL_AUTOCONFIRM: "false"
-  ENABLE_ANONYMOUS_USERS: "false"
-  # Phone auth disabled by default — upstream defaults to true which is
-  # surprising for a fresh self-host (no SMS provider configured).
-  ENABLE_PHONE_SIGNUP: "false"
-  ENABLE_PHONE_AUTOCONFIRM: "false"
+  # ===== SMTP (stubs by default — operator wires up real provider) =====
+  - key: SMTP_ADMIN_EMAIL
+    label: SMTP admin email
+    type: text
+    default: admin@develop.cc
+  - key: SMTP_HOST
+    label: SMTP host
+    type: text
+    default: supabase-mail
+  - key: SMTP_PORT
+    label: SMTP port
+    type: integer
+    min: 1
+    max: 65535
+    default: "2500"
+  - key: SMTP_USER
+    label: SMTP username
+    type: text
+    default: ""
+    help: Blank → outbound mail will fail.
+  - key: SMTP_PASS
+    label: SMTP password
+    type: password
+    help: Blank → outbound mail will fail.
+  - key: SMTP_SENDER_NAME
+    label: SMTP sender name
+    type: text
+    default: BitsFactor
 
-  # ---- Email (default off — production SMTP plugged in later) ----
-  # Stub values keep GoTrue from refusing to boot; outbound mail will
-  # fail until operator fills in real SMTP credentials.
-  SMTP_ADMIN_EMAIL: admin@develop.cc
-  SMTP_HOST: supabase-mail
-  SMTP_PORT: "2500"
-  SMTP_USER: ""
-  SMTP_PASS: ""
-  SMTP_SENDER_NAME: BitsFactor
+  # ===== Storage =====
+  - key: GLOBAL_S3_BUCKET
+    label: Storage S3 bucket name
+    type: text
+    default: stub
+  - key: REGION
+    label: Storage S3 region
+    type: text
+    default: stub
+  - key: STORAGE_TENANT_ID
+    label: Storage tenant id
+    type: text
+    default: stub
+  - key: S3_PROTOCOL_ACCESS_KEY_ID
+    label: Storage S3 access key id
+    type: password
+    required: true
+    help: Storage's S3-protocol access key ID (compat with S3 SDKs).
+  - key: S3_PROTOCOL_ACCESS_KEY_SECRET
+    label: Storage S3 access key secret
+    type: password
+    required: true
+    help: Storage's S3-protocol access key secret.
+  - key: MINIO_ROOT_USER
+    label: MinIO root user (if bundled)
+    type: text
+    default: supa-storage
+    help: Only used if you opt into the bundled MinIO via docker-compose.s3.yml.
+  - key: MINIO_ROOT_PASSWORD
+    label: MinIO root password (if bundled)
+    type: password
+    help: Only used with the bundled MinIO. Upstream stub `secret1234` for non-prod.
 
-  # ---- Storage -----------------------------------------------------
-  GLOBAL_S3_BUCKET: stub
-  REGION: stub
-  STORAGE_TENANT_ID: stub
-  # Only used if operator opts into the bundled MinIO via
-  # `-f docker-compose.s3.yml` — kept as upstream stubs.
-  MINIO_ROOT_USER: supa-storage
-  MINIO_ROOT_PASSWORD: secret1234
+  # ===== Edge Functions =====
+  - key: FUNCTIONS_VERIFY_JWT
+    label: Edge Functions — verify JWT
+    type: boolean
+    default: "false"
 
-  # ---- Edge Functions ---------------------------------------------
-  FUNCTIONS_VERIFY_JWT: "false"
+  # ===== PostgREST =====
+  - key: PGRST_DB_SCHEMAS
+    label: PostgREST exposed schemas
+    type: text
+    default: public,storage,graphql_public
+  - key: PGRST_DB_MAX_ROWS
+    label: PostgREST max rows per request
+    type: integer
+    min: 1
+    default: "1000"
+  - key: PGRST_DB_EXTRA_SEARCH_PATH
+    label: PostgREST extra search_path
+    type: text
+    default: public
 
-  # ---- PostgREST ---------------------------------------------------
-  PGRST_DB_SCHEMAS: public,storage,graphql_public
-  PGRST_DB_MAX_ROWS: "1000"
-  PGRST_DB_EXTRA_SEARCH_PATH: public
+  # ===== Logflare / Vector / Analytics =====
+  - key: DOCKER_SOCKET_LOCATION
+    label: Vector docker socket
+    type: text
+    default: /var/run/docker.sock
+  - key: GOOGLE_PROJECT_ID
+    label: Google project id (Logflare BigQuery)
+    type: text
+    default: stub
+  - key: GOOGLE_PROJECT_NUMBER
+    label: Google project number (Logflare BigQuery)
+    type: text
+    default: stub
 
-  # ---- Logflare / Vector -------------------------------------------
-  DOCKER_SOCKET_LOCATION: /var/run/docker.sock
-  GOOGLE_PROJECT_ID: stub
-  GOOGLE_PROJECT_NUMBER: stub
+  # ===== imgproxy =====
+  - key: IMGPROXY_AUTO_WEBP
+    label: imgproxy auto-webp
+    type: boolean
+    default: "true"
 
-  # ---- imgproxy ----------------------------------------------------
-  IMGPROXY_AUTO_WEBP: "true"
+  # ===== Bundled Caddy / Nginx placeholders (we use ssl-service Caddy instead) =====
+  - key: PROXY_DOMAIN
+    label: Bundled Caddy proxy domain (unused)
+    type: text
+    default: supabase.develop.cc
+  - key: CERTBOT_EMAIL
+    label: Bundled Caddy certbot email (unused)
+    type: text
+    default: admin@develop.cc
 
-  # ---- Bundled Caddy / Nginx (NOT used — ssl-service Caddy fronts) -
-  # We don't run upstream's docker-compose.caddy.yml; placeholders
-  # silence compose substitution warnings.
-  PROXY_DOMAIN: supabase.develop.cc
-  CERTBOT_EMAIL: admin@develop.cc
+  # ===== Container runtime =====
+  - key: TZ
+    label: Timezone
+    type: text
+    default: Asia/Shanghai
+    help: IANA timezone. Affects log timestamps across all 13 containers.
 
-# Per-service secrets (JWT keys, dashboard creds, S3 keys, OPENAI key,
-# etc.) live in services.default_env on the service row — not in
-# system_config. Generate the JWT/key bundle once locally:
-#   sh ./docker/utils/generate-keys.sh        → JWT_SECRET / ANON_KEY / SERVICE_ROLE_KEY
-#   sh ./docker/utils/add-new-auth-keys.sh    → JWT_KEYS / JWT_JWKS / SUPABASE_PUBLISHABLE_KEY
-#                                               / SUPABASE_SECRET_KEY / ANON_KEY_ASYMMETRIC
-#                                               / SERVICE_ROLE_KEY_ASYMMETRIC
-# then paste each value into admin → Services → supabase → Edit.
-secrets: []
-
-# Caddy uses these to suggest a route. Only 61222 is meant to be
-# externally reachable (via the parent ssl-service Caddy).
 exposed_ports:
   - 61222
 
 # Healthcheck — Kong proxies /auth/v1/health to the auth container's
 # /health endpoint, which returns 200 even before any user signs up.
-# 180s window covers Postgres initdb + Realtime migrations on a cold node.
+# 180s covers Postgres initdb + Realtime migrations on a cold node.
 healthcheck:
   url: http://localhost:61222/auth/v1/health
   expect_status: 200
@@ -181,10 +422,8 @@ depends_on: []
 hooks:
   pre_deploy: scripts/pre_deploy.sh
 
-# Persistent dirs the platform pre-creates. Currently unused by the
-# stack (Postgres data lives under docker/volumes/db, committed in the
-# upstream repo) — kept for parity with sibling services and reserved
-# for future host-side log collection.
+# Persistent dirs the platform pre-creates. Currently unused (Postgres
+# data lives in docker/volumes/db committed upstream).
 volumes:
   - /opt/{name}/data
   - /opt/{name}/logs
