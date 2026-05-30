@@ -387,16 +387,6 @@ config_schema:
     type: boolean
     default: "true"
 
-  # ===== Bundled Caddy / Nginx placeholders (we use ssl-service Caddy instead) =====
-  - key: PROXY_DOMAIN
-    label: Bundled Caddy proxy domain (unused)
-    type: text
-    default: supabase.develop.cc
-  - key: CERTBOT_EMAIL
-    label: Bundled Caddy certbot email (unused)
-    type: text
-    default: admin@develop.cc
-
   # ===== Container runtime =====
   - key: TZ
     label: Timezone
