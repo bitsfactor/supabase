@@ -417,3 +417,9 @@ hooks:
 volumes:
   - /opt/{name}/data
   - /opt/{name}/logs
+# Uninstall keeps DATA only (code removed). The REAL data lives under
+# `docker/volumes` (db/data = Postgres, storage = files, functions, snippets) —
+# NOT the unused /data,/logs above. Named volumes (db-config pgsodium key) also
+# survive because `down` runs without -v. Path relative to install_dir.
+preserve_on_uninstall:
+  - docker/volumes
