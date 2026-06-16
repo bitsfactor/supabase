@@ -47,4 +47,27 @@ if (( ${#missing[@]} > 0 )); then
   exit 1
 fi
 
+# 4. Replication role (DR). NODE_ROLE defaults to `primary` — a normal Supabase
+#    node, byte-for-byte the same deploy as before this block existed. A
+#    `replica` is a read-only physical streaming standby; it is bootstrapped
+#    EXPLICITLY (pg_basebackup -R from the primary, see
+#    docs/dr-failover-runbook.md), NEVER auto-created here — a misconfigured
+#    NODE_ROLE must never wipe data. So this block only VALIDATES (read-only):
+#    it refuses to deploy a replica over a PGDATA that isn't already a standby.
+NODE_ROLE="${NODE_ROLE:-primary}"
+if [[ "$NODE_ROLE" == "replica" ]]; then
+  if [[ -z "${REPLICA_PRIMARY_HOST:-}" ]]; then
+    echo "pre_deploy: NODE_ROLE=replica but REPLICA_PRIMARY_HOST is unset" >&2
+    exit 1
+  fi
+  if [[ ! -f docker/volumes/db/data/standby.signal ]]; then
+    echo "pre_deploy: NODE_ROLE=replica but PGDATA is not a standby (no standby.signal)." >&2
+    echo "pre_deploy: bootstrap the replica first — pg_basebackup -R from ${REPLICA_PRIMARY_HOST}; see docs/dr-failover-runbook.md." >&2
+    exit 1
+  fi
+  echo "pre_deploy: NODE_ROLE=replica — streaming standby of ${REPLICA_PRIMARY_HOST} (slot ${REPLICATION_SLOT:-xcenter2_slot})"
+else
+  echo "pre_deploy: NODE_ROLE=primary"
+fi
+
 echo "pre_deploy: ok (docker/.env -> ../.env linked, env sanity passed)"

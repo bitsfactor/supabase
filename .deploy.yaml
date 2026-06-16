@@ -394,6 +394,28 @@ config_schema:
     default: Asia/Shanghai
     help: IANA timezone. Affects log timestamps across all 13 containers.
 
+  # ===== Replication role (DR) — see docs/dr-failover-runbook.md =====
+  # Declarative master/slave config. Defaults to `primary` (a normal Supabase
+  # node). A `replica` is a read-only physical streaming standby of the primary;
+  # it is bootstrapped EXPLICITLY (pg_basebackup, per the runbook), never
+  # auto-created on deploy — a misconfigured NODE_ROLE must never wipe data.
+  - key: NODE_ROLE
+    label: 数据库角色
+    type: enum
+    options: ["primary", "replica"]
+    default: primary
+    help: "primary = 普通可写主库;replica = 只读流复制从库(需先显式 bootstrap)。per-node 覆盖:xcenter2 设 replica。"
+  - key: REPLICA_PRIMARY_HOST
+    label: 主库地址 (replica 用)
+    type: text
+    default: ""
+    help: "NODE_ROLE=replica 时,流复制的主库 IP/host。失败切换时翻转。"
+  - key: REPLICATION_SLOT
+    label: 复制槽名
+    type: text
+    default: "xcenter2_slot"
+    help: "主库为此从库建的物理复制槽名。"
+
 exposed_ports:
   - 61222
 
