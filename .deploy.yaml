@@ -404,7 +404,7 @@ config_schema:
     type: enum
     options: ["primary", "replica"]
     default: primary
-    help: "primary = 普通可写主库;replica = 只读流复制从库(需先显式 bootstrap)。per-node 覆盖:xcenter2 设 replica。"
+    help: "primary = 普通可写主库;replica = 只读流复制从库(需先显式 bootstrap)。per-node 覆盖由 supabase.deploy role=replica 写入(如 us-los)。"
   - key: REPLICA_PRIMARY_HOST
     label: 主库地址 (replica 用)
     type: text
@@ -413,8 +413,8 @@ config_schema:
   - key: REPLICATION_SLOT
     label: 复制槽名
     type: text
-    default: "xcenter2_slot"
-    help: "主库为此从库建的物理复制槽名。"
+    default: ""
+    help: "主库为此从库建的物理复制槽名(supabase.deploy 默认派生 <节点>_slot)。"
 
 exposed_ports:
   - 61222

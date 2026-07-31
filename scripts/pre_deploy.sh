@@ -65,7 +65,7 @@ if [[ "$NODE_ROLE" == "replica" ]]; then
     echo "pre_deploy: bootstrap the replica first — pg_basebackup -R from ${REPLICA_PRIMARY_HOST}; see docs/dr-failover-runbook.md." >&2
     exit 1
   fi
-  echo "pre_deploy: NODE_ROLE=replica — streaming standby of ${REPLICA_PRIMARY_HOST} (slot ${REPLICATION_SLOT:-xcenter2_slot})"
+  echo "pre_deploy: NODE_ROLE=replica — streaming standby of ${REPLICA_PRIMARY_HOST} (slot ${REPLICATION_SLOT:-unset})"
 else
   echo "pre_deploy: NODE_ROLE=primary"
 fi
