@@ -419,12 +419,15 @@ config_schema:
 exposed_ports:
   - 61222
 
-# Healthcheck — Kong proxies /auth/v1/health to the auth container's
-# /health endpoint, which returns 200 even before any user signs up.
-# 180s covers Postgres initdb + Realtime migrations on a cold node.
+# Healthcheck — Kong answers 401 ("No API key") on /auth/v1/health:
+# key-auth fires before proxying, so a 401 PROVES kong is up, routing,
+# and enforcing auth. 200 was never the real behaviour (2026-08-01
+# verified on both nodes; the old value predates any platform deploy
+# of supabase and had never actually run). 180s covers Postgres initdb
+# + Realtime migrations on a cold node.
 healthcheck:
   url: http://localhost:61222/auth/v1/health
-  expect_status: 200
+  expect_status: 401
   timeout_seconds: 180
   retries: 36
   interval_seconds: 5
