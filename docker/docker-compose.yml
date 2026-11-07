@@ -518,6 +518,10 @@ services:
     container_name: supabase-db
     image: supabase/postgres:15.8.1.085
     restart: unless-stopped
+    # /dev/shm 承载 Postgres 动态共享内存(并行查询等);Docker 默认 64M,
+    # 主库实测在 41–63M 间波动、贴近上限(2026-11-07)。tmpfs 只按实际用量占内存,
+    # 16g 是余量而非预占(operator 2026-11-07 定)。改了需重建 db 容器才生效。
+    shm_size: 16gb
     # Expose Postgres directly to the host for cloud-like "Direct connection"
     # access (Supavisor 2.7.4 fumbles psql 17's protocol extensions, so we
     # bypass the pooler for admin clients). Host port is configurable via
