@@ -10,7 +10,6 @@ import yaml
 # PT_PG_PORT / PT_REST_PORT(生产库容器 5432 发布在宿主 5433)、PT_MAX_*(取自 production/params.env)。
 ENV_DEFAULTS = {
     "PT_SCOPE": "supabase-main",
-    "PT_SYNC": "false",
     "PT_NOSYNC": "false",
     "PT_NOFAILOVER": "false",
 }
@@ -25,9 +24,11 @@ class Env(dict):
 
 def main(template_path: str) -> None:
     env = Env(os.environ)
+    standby_host = os.environ.get("PT_STANDBY_HOST", "")
+    # 同步提交(任一从库确认即可,quorum)是生产缺省;迁移期整个集群是备用集群,不支持同步,切主时那条 edit-config 一并打开。
+    env["PT_SYNC"] = os.environ.get("PT_SYNC") or ("false" if standby_host else "quorum")
     text = string.Template(open(template_path).read()).substitute(env)
     cfg = yaml.safe_load(text)
-    standby_host = os.environ.get("PT_STANDBY_HOST", "")
     if standby_host:
         # 迁移期:整个 Patroni 集群先当旧主库的「备用集群」,切主时再摘掉这一块(见 drills/01-migrate.sh)。
         block = {"host": standby_host, "port": int(os.environ.get("PT_STANDBY_PORT", "5432"))}

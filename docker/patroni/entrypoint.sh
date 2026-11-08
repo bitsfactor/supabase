@@ -15,6 +15,15 @@ chmod 0700 "${PGDATA:-/var/lib/postgresql/data}"
 # 证书:从只读挂载的 /tls 拷出并交给 postgres(私钥 0600),Patroni 与 patronictl 都读 /etc/patroni/tls
 install -d -o postgres -g postgres -m 0700 /etc/patroni/tls
 for f in /tls/*; do install -o postgres -g postgres -m 0600 "$f" "/etc/patroni/tls/$(basename "$f")"; done
+# 失败即拒绝:数据目录里已有库、而集群在 etcd 里还没初始化、又没设 PT_STANDBY_HOST(迁移期当备用集群)—— Patroni 会把这份数据
+# 当成新集群的主库直接拉起(旧主库没停就是第二个主)。读不到 etcd 同样拒绝。
+if [ -f "${PGDATA:-/var/lib/postgresql/data}/PG_VERSION" ] && [ -z "${PT_STANDBY_HOST:-}" ]; then
+  state=$(python3 /opt/patroni/dcs_initialized.py) || state="unreadable"
+  if [ "$state" != "initialized" ]; then
+    echo "entrypoint: refusing to start: existing data directory, cluster not initialized in etcd ($state) and PT_STANDBY_HOST is empty" >&2
+    exit 78
+  fi
+fi
 python3 /opt/patroni/render.py /opt/patroni/patroni.yml > /etc/patroni/patroni.yml
 chown postgres:postgres /etc/patroni/patroni.yml
 chmod 600 /etc/patroni/patroni.yml

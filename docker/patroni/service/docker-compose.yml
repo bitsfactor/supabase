@@ -58,6 +58,7 @@ services:
     ports: ["5433:5432", "8008:8008"]
     volumes:
       - ${PT_DATA_DIR:-/opt/supabase/docker/volumes/db/data}:/var/lib/postgresql/data
+      - db-config:/etc/postgresql-custom      # 原 supabase 的 db-config 卷:里面有 pgsodium 根密钥,必须挂回同一个卷
       - pt-tls:/tls:ro
     environment:
       PT_SCOPE: ${PT_SCOPE:-supabase-main}
@@ -79,20 +80,21 @@ services:
       PT_STANDBY_PORT: ${PT_STANDBY_PORT:-5433}
       PT_STANDBY_SLOT: ${PT_STANDBY_SLOT:-}
       PT_NOSYNC: ${PT_NOSYNC:-false}
-      PT_SYNC: ${PT_SYNC:-false}
+      PT_SYNC: ${PT_SYNC:-}      # 空 = 生产缺省 quorum(任一从库确认才算提交);迁移期(有 PT_STANDBY_HOST)自动为 false
   ha:
     build: {context: .., dockerfile: Dockerfile.haproxy}
     image: one-patroni-haproxy:2.8
     container_name: pt-ha
     restart: unless-stopped
     depends_on: {tls-init: {condition: service_completed_successfully}}
-    ports: ["5000:5000"]
+    ports: ["5000:5000", "127.0.0.1:8009:8009"]      # 8009 = 平台健康探针(只对本机开放)
     volumes: ["pt-tls:/tls:ro"]
     mem_limit: 256m
     environment:
       ENTRY_PORT: "5000"
       PT_SCOPE: ${PT_SCOPE:-supabase-main}
       PT_ETCD_HOSTS: ${PT_ETCD_HOSTS}      # 非投票机也要能读 etcd(confd 盯成员表)
+      ENTRY_BACKUP: ${ENTRY_BACKUP:-}      # 仅迁移期:旧主库 IP:端口,当备用后端(迁移完清空)
   guard:
     profiles: [guard]
     image: one-patroni-haproxy:2.8
@@ -105,3 +107,4 @@ volumes:
   pt-tls:
   pt-etcd-data:
   pt-guard:
+  db-config: {external: true, name: "${PT_DB_CONFIG_VOLUME:-supabase_db-config}"}

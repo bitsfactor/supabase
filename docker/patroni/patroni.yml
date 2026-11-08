@@ -41,7 +41,7 @@ bootstrap:
     loop_wait: 10
     retry_timeout: 10
     maximum_lag_on_failover: 1048576
-    # 同步提交:迁移期(备集群)为 false,切主后用 patronictl edit-config 改成 quorum(任一候选确认即可)。
+    # 同步提交:缺省 quorum(任一从库确认才算提交,单机故障不丢已确认的写入);迁移期(备用集群)render.py 置 false,切主时 edit-config 一并打开。
     synchronous_mode: $PT_SYNC
     synchronous_node_count: 1
     # 投票组整体不可用时保持现主;租约 30 秒 / 每 10 秒续一次。

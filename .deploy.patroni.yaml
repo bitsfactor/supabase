@@ -36,14 +36,20 @@ config_schema:
     label: Patroni REST 写口令
     type: password
     required: true
-  - key: PT_SUPERUSER_PASSWORD
-    label: 库超级用户 supabase_admin 的口令
-    type: password
-    required: true
   - key: PT_REPL_PASSWORD
     label: 复制账号 supabase_replication_admin 的口令
     type: password
     required: true
+  - key: PT_DB_CONFIG_VOLUME
+    label: 原 supabase 的 db-config 卷名(pgsodium 根密钥所在)
+    type: text
+    default: supabase_db-config
+    help: 必须挂回原来的卷,否则 pgsodium 加密的数据读不出来
+  - key: ENTRY_BACKUP
+    label: 迁移期:旧主库 IP:端口(库入口的备用后端)
+    type: text
+    default: ""
+    help: 仅一次性迁移用;各服务先改连库入口,切主时入口自动从旧主库换到新主库;迁移完清空
   - key: PT_MAX_CONNECTIONS
     label: max_connections(各节点必须一致)
     type: integer
@@ -87,10 +93,15 @@ config_schema:
     type: password
     required: true
 
+# 库超级用户口令只有一份:取自 system_config(由 supabase 服务现有的 POSTGRES_PASSWORD 收编,清单第 1 步),不在本服务配置里再抄一份
+secrets:
+  - env: PT_SUPERUSER_PASSWORD
+    from: system_config:supabase_postgres.password
+
 exposed_ports:
   - 5000
 
-# 库入口的健康探针(HAProxy monitor-uri):入口进程在跑就是 200;库本身的健康看应急系统状态。
+# 库入口的健康探针(HAProxy monitor-uri,compose 把容器 8009 发布到本机 127.0.0.1:8009):入口进程在跑就是 200;库本身的健康看应急系统状态。
 healthcheck:
   url: http://127.0.0.1:8009/health
   expect_status: 200

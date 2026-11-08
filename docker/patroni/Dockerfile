@@ -8,7 +8,7 @@ RUN apt-get update \
  && pip3 install --no-cache-dir -U pip \
  && pip3 install --no-cache-dir "patroni[etcd3]==4.1.1" psycopg2-binary \
  && rm -rf /var/lib/apt/lists/*
-COPY render.py patroni.yml /opt/patroni/
+COPY render.py patroni.yml dcs_initialized.py /opt/patroni/
 COPY on-role-change.sh entrypoint.sh /opt/patroni/
 RUN chmod +x /opt/patroni/*.sh
 # Patroni 自带的 postgresql.conf 会改名成 postgresql.base.conf,这里只需给它一个可写目录。

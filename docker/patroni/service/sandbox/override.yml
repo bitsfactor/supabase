@@ -16,6 +16,7 @@ services:
       PT_TEST_PG_REDIRECT: "5433"
     volumes: !override
       - data:/var/lib/postgresql/data
+      - db-config:/etc/postgresql-custom
       - pt-tls:/tls:ro
     networks: {sbx: {ipv4_address: "${SBX_DB_IP}"}}
   ha:
@@ -29,3 +30,4 @@ networks:
   sbx: {external: true, name: patroni-test}
 volumes:
   data: {name: "pt-data-${SBX_M}"}
+  db-config: !override {name: "pt-cfg-${SBX_M}"}

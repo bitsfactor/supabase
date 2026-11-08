@@ -2,8 +2,8 @@
 # 一个后端被判下线的那一刻掐断所有经它的连接,客户端连接池立刻重连到新主。
 global
     maxconn 4000
-    # 平滑重载后旧进程最多再活 3 秒,其上连着已不该连的后端的连接一并断开
-    hard-stop-after 3s
+    # 平滑重载(成员表变了)不掐已有连接:旧进程等连接自然结束,最多再活 2 小时(比 timeout client/server 的 1 小时长)
+    hard-stop-after 2h
     stats socket /tmp/haproxy.sock mode 600 level admin
 
 defaults
@@ -25,9 +25,11 @@ listen pg_primary
 # BEGIN-SERVERS
 {{range gets "/members/*"}}{{$d := json .Value}}    server {{base .Key}} {{index (split (index (split $d.conn_url "/") 2) ":") 0}}:{{index (split (index (split $d.conn_url "/") 2) ":") 1}} check port {{index (split (index (split $d.api_url "/") 2) ":") 1}}
 {{end}}# END-SERVERS
-
+# 迁移期:旧主库当「备用后端」(不做健康检查,只在 Patroni 成员里没有主的时候接流量);迁移完成后清空 ENTRY_BACKUP
+{{if getenv "ENTRY_BACKUP"}}    server legacy {{getenv "ENTRY_BACKUP"}} backup
+{{end}}
 # 平台健康探针:入口进程在跑就回 200
 frontend health
     mode http
-    bind 127.0.0.1:8009
+    bind *:8009
     monitor-uri /health

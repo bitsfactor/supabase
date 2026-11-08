@@ -2,10 +2,14 @@
 """盯守(两个机房同时坏、接管之后跑在新主库机器上):每 2 秒探测失联的库机器,一能连上就 ssh 过去
 把它的 db / etcd / 入口容器停掉并设为不自启,防止它带着旧数据回来当第二个主。状态在 /guard/state.json。
 
+目标机上的钥匙是专用的:authorized_keys 里那一行带强制命令,只能停该机的库 / 入口 / etcd 容器并设为不自启(restrict),
+所以这里 ssh 过去不带任何自己的命令。私钥在 /guard/keys/<目标名>(接管时经标准输入送来,撤销盯守时删掉)。
+
 用法(容器里):
   guard.py run                      常驻循环
-  guard.py add NAME 探测host:端口 用户@ssh主机:端口 容器1,容器2 …   登记一个目标
-  guard.py clear NAME               撤销盯守(重新加入时)
+  guard.py keys                     标准输入读 {"目标名": "私钥文本"},写进 /guard/keys
+  guard.py add NAME 探测host:端口 用户@ssh主机:端口   登记一个目标(已登记的保留其状态,可重复执行)
+  guard.py clear NAME               撤销盯守(重新加入时):删掉登记和这台的私钥,打印被撤销的登记
   guard.py show                     打印状态
 """
 import json
@@ -16,7 +20,7 @@ import sys
 import time
 
 STATE = os.environ.get("GUARD_STATE", "/guard/state.json")
-KEY = os.environ.get("GUARD_KEY", "/guard/key")
+KEYS = os.environ.get("GUARD_KEYS", "/guard/keys")
 INTERVAL_SECONDS = 2
 REPEAT_SECONDS = 10
 
@@ -44,12 +48,10 @@ def reachable(host, port):
         return False
 
 
-def stop_remote(target):
+def stop_remote(name, target):
     user_host, _, port = target["ssh"].rpartition(":")
-    command = ("docker update --restart=no " + " ".join(target["containers"]) + " >/dev/null 2>&1; "
-               "docker stop -t 10 " + " ".join(target["containers"]) + " >/dev/null 2>&1; echo STOPPED")
-    done = subprocess.run(["ssh", "-i", KEY, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
-                           "-o", "StrictHostKeyChecking=accept-new", "-p", port, user_host, command],
+    done = subprocess.run(["ssh", "-i", os.path.join(KEYS, name), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
+                           "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=accept-new", "-p", port, user_host, "stop"],
                           capture_output=True, text=True, timeout=60)
     return "STOPPED" in done.stdout
 
@@ -66,7 +68,7 @@ def tick():
         if now - target.get("last_action", 0) >= REPEAT_SECONDS:
             ok = False
             try:
-                ok = stop_remote(target)
+                ok = stop_remote(name, target)
             except (OSError, subprocess.SubprocessError):
                 ok = False
             target["last_action"] = now
@@ -85,14 +87,27 @@ def main(argv):
             tick()
             time.sleep(INTERVAL_SECONDS)
     state = load()
-    if command == "add":
-        name, probe, ssh, containers = argv[2:6]
-        state["targets"][name] = {"probe": probe, "ssh": ssh, "containers": containers.split(","), "added_at": time.time(),
-                                  "stopped": False}
+    if command == "keys":
+        os.makedirs(KEYS, mode=0o700, exist_ok=True)
+        for name, text in json.load(sys.stdin).items():
+            path = os.path.join(KEYS, name)
+            with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as handle:
+                handle.write(text if text.endswith("\n") else text + "\n")
+    elif command == "add":
+        name, probe, ssh = argv[2:5]
+        previous = state["targets"].get(name, {})
+        state["targets"][name] = {**previous, "probe": probe, "ssh": ssh, "added_at": previous.get("added_at", time.time()),
+                                  "stopped": previous.get("stopped", False)}
         save(state)
     elif command == "clear":
-        state["targets"].pop(argv[2], None)
+        removed = state["targets"].pop(argv[2], None)
         save(state)
+        try:
+            os.remove(os.path.join(KEYS, argv[2]))
+        except OSError:
+            pass
+        print(json.dumps({"removed": removed, "targets": state["targets"]}))
+        return
     elif command == "show":
         pass
     else:
