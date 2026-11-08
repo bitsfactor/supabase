@@ -46,7 +46,7 @@ config_schema:
     default: supabase_db-config
     help: 必须挂回原来的卷,否则 pgsodium 加密的数据读不出来
   - key: ENTRY_BACKUP
-    label: 迁移期:旧主库 IP:端口(库入口的备用后端)
+    label: 迁移期:旧主库 IP:5433(库入口的备用后端,直连库口,5432 是连接池)
     type: text
     default: ""
     help: 仅一次性迁移用;各服务先改连库入口,切主时入口自动从旧主库换到新主库;迁移完清空
@@ -76,6 +76,11 @@ config_schema:
     type: text
     default: ""
     help: 仅一次性迁移用(备用集群),平时留空
+  - key: PT_STANDBY_PORT
+    label: 迁移期:现主库的直连库端口
+    type: text
+    default: "5433"
+    help: 直连库口 5433(5432 是连接池,物理复制不能走它)
   - key: PT_STANDBY_SLOT
     label: 迁移期:现主库上的复制槽名
     type: text
@@ -83,6 +88,18 @@ config_schema:
   - key: COMPOSE_PROFILES
     label: compose 档(投票机填 etcd,其余留空)
     type: text
+    default: ""
+  - key: PT_ETCD_USER
+    label: etcd 凭据用户(两机房同时坏接管后由应急系统写入)
+    type: text
+    default: ""
+  - key: PT_ETCD_PASSWORD
+    label: etcd 凭据口令(同上)
+    type: password
+    default: ""
+  - key: ETCD_ROOT_CREDENTIALS
+    label: etcd root 凭据 root:口令(同上)
+    type: password
     default: ""
   - key: TLS_CRT_B64
     label: 本机节点证书(base64)

@@ -14,7 +14,8 @@ NODES=""
 for h in $(echo "$PT_ETCD_HOSTS" | tr ',' ' '); do NODES="$NODES -node $h"; done
 # haproxy 变成 1 号进程之后(exec)confd 才开始,避免它的 USR2 打到还是 shell 的 1 号进程
 ( sleep 2; while :; do
-    confd -backend etcdv3 -watch -confdir /etc/confd -prefix "/one/$PT_SCOPE" $NODES -scheme https \
+    AUTH=""; [ -n "${PT_ETCD_USER:-}" ] && AUTH="-basic-auth -username $PT_ETCD_USER -password $PT_ETCD_PASSWORD"
+    confd -backend etcdv3 -watch -confdir /etc/confd -prefix "/one/$PT_SCOPE" $NODES -scheme https $AUTH \
       -client-cert /tls/node.crt -client-key /tls/node.key -client-ca-keys /tls/ca.crt -log-level warn || true
     sleep 2
   done ) &

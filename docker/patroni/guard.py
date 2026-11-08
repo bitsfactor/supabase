@@ -8,10 +8,11 @@
 用法(容器里):
   guard.py run                      常驻循环
   guard.py keys                     标准输入读 {"目标名": "私钥文本"},写进 /guard/keys
-  guard.py add NAME 探测host:端口 用户@ssh主机:端口   登记一个目标(已登记的保留其状态,可重复执行)
+  guard.py add NAME 探测host:端口[,host:端口…] 用户@ssh主机:端口   登记一个目标(已登记的保留其状态,可重复执行)
   guard.py clear NAME               撤销盯守(重新加入时):删掉登记和这台的私钥,打印被撤销的登记
   guard.py show                     打印状态
 """
+import fcntl
 import json
 import os
 import socket
@@ -20,6 +21,7 @@ import sys
 import time
 
 STATE = os.environ.get("GUARD_STATE", "/guard/state.json")
+LOCK = os.environ.get("GUARD_LOCK", STATE + ".lock")
 KEYS = os.environ.get("GUARD_KEYS", "/guard/keys")
 INTERVAL_SECONDS = 2
 REPEAT_SECONDS = 10
@@ -40,12 +42,26 @@ def save(state):
     os.replace(tmp, STATE)
 
 
-def reachable(host, port):
-    try:
-        socket.create_connection((host, int(port)), timeout=1.5).close()
-        return True
-    except OSError:
-        return False
+def update(change):
+    """状态的读-改-写在文件锁里一次做完(巡回、登记、撤销可能同时来);change(state) 就地修改."""
+    with open(LOCK, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        state = load()
+        change(state)
+        save(state)
+        return state
+
+
+def reachable(probe):
+    """探测串 `host:端口,host:端口,…`:任何一个口答话就算它回来了(数据库口、Patroni 口、etcd 口、库入口——容器起来的哪一个都算)."""
+    for item in probe.split(","):
+        host, _, port = item.rpartition(":")
+        try:
+            socket.create_connection((host, int(port)), timeout=1.5).close()
+            return True
+        except OSError:
+            continue
+    return False
 
 
 def stop_remote(name, target):
@@ -57,27 +73,25 @@ def stop_remote(name, target):
 
 
 def tick():
-    state = load()
-    now = time.time()
-    changed = False
-    for name, target in state["targets"].items():
-        host, _, port = target["probe"].rpartition(":")
-        if not reachable(host, port):
+    for name, target in list(load()["targets"].items()):
+        if not reachable(target["probe"]):
             continue
-        target["last_reachable"] = now
-        if now - target.get("last_action", 0) >= REPEAT_SECONDS:
+        now = time.time()
+        if now - target.get("last_action", 0) < REPEAT_SECONDS:
+            update(lambda st: st["targets"].get(name) and st["targets"][name].update(last_reachable=now))
+            continue
+        try:
+            ok = stop_remote(name, target)       # 慢操作不拿锁
+        except (OSError, subprocess.SubprocessError):
             ok = False
-            try:
-                ok = stop_remote(name, target)
-            except (OSError, subprocess.SubprocessError):
-                ok = False
-            target["last_action"] = now
-            target["stopped"] = ok or target.get("stopped", False)
-            target["stopped_at"] = now if ok else target.get("stopped_at")
-            target["attempts"] = target.get("attempts", 0) + 1
-        changed = True
-    if changed:
-        save(state)
+
+        def record(state):
+            current = state["targets"].get(name)
+            if current is None:                  # 这期间被撤销了:别把它写回来
+                return
+            current.update(last_reachable=now, last_action=now, stopped=ok or current.get("stopped", False),
+                           stopped_at=now if ok else current.get("stopped_at"), attempts=current.get("attempts", 0) + 1)
+        update(record)
 
 
 def main(argv):
@@ -86,7 +100,6 @@ def main(argv):
         while True:
             tick()
             time.sleep(INTERVAL_SECONDS)
-    state = load()
     if command == "keys":
         os.makedirs(KEYS, mode=0o700, exist_ok=True)
         for name, text in json.load(sys.stdin).items():
@@ -95,18 +108,23 @@ def main(argv):
                 handle.write(text if text.endswith("\n") else text + "\n")
     elif command == "add":
         name, probe, ssh = argv[2:5]
-        previous = state["targets"].get(name, {})
-        state["targets"][name] = {**previous, "probe": probe, "ssh": ssh, "added_at": previous.get("added_at", time.time()),
-                                  "stopped": previous.get("stopped", False)}
-        save(state)
+
+        def add(state):
+            previous = state["targets"].get(name, {})
+            state["targets"][name] = {**previous, "probe": probe, "ssh": ssh, "added_at": previous.get("added_at", time.time()),
+                                      "stopped": previous.get("stopped", False)}
+        update(add)
     elif command == "clear":
-        removed = state["targets"].pop(argv[2], None)
-        save(state)
+        removed = {}
+
+        def clear(state):
+            removed["entry"] = state["targets"].pop(argv[2], None)
+        state = update(clear)
         try:
             os.remove(os.path.join(KEYS, argv[2]))
         except OSError:
             pass
-        print(json.dumps({"removed": removed, "targets": state["targets"]}))
+        print(json.dumps({"removed": removed["entry"], "targets": state["targets"]}))
         return
     elif command == "show":
         pass
