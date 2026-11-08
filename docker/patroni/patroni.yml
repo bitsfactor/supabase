@@ -36,6 +36,22 @@ etcd3:
   key: /etc/patroni/tls/node.key
 
 bootstrap:
+  # 仅首次初始化的迁移兼容规则;运行中 pg_hba 由 DCS 动态配置统一管理,本机 postgresql 不覆盖它。
+  pg_hba: &initial_pg_hba
+    - local all supabase_admin scram-sha-256
+    - local all all peer map=supabase_map
+    - host all all 127.0.0.1/32 trust
+    - host all all ::1/128 trust
+    - host replication supabase_replication_admin 127.0.0.1/32 trust
+    - host replication supabase_replication_admin ::1/128 trust
+    # 成员跨机房、走公网地址:这里放开来源,谁能连由源站防火墙(fleet_allowlist)管,pg_hba 里不列节点 IP。
+    - host replication supabase_replication_admin 0.0.0.0/0 scram-sha-256
+    - host replication supabase_replication_admin ::/0 scram-sha-256
+    - host all all 10.0.0.0/8 scram-sha-256
+    - host all all 172.16.0.0/12 scram-sha-256
+    - host all all 192.168.0.0/16 scram-sha-256
+    - host all all 0.0.0.0/0 scram-sha-256
+    - host all all ::0/0 scram-sha-256
   dcs:
     ttl: 30
     loop_wait: 10
@@ -50,6 +66,7 @@ bootstrap:
     ignore_slots:
       - type: logical
     postgresql:
+      pg_hba: *initial_pg_hba
       use_pg_rewind: true
       # 坏机回来自动变回从库:倒回失败就删掉数据目录重拷;时间线分叉也删了重拷(operator 2026-11-08 定)
       remove_data_directory_on_rewind_failure: true
@@ -75,6 +92,7 @@ bootstrap:
         max_locks_per_transaction: $PT_MAX_LOCKS_PER_TRANSACTION
         track_commit_timestamp: "off"
 
+
 postgresql:
   listen: 0.0.0.0:5432
   connect_address: "$PT_HOST:$PT_PG_PORT"
@@ -90,22 +108,6 @@ postgresql:
     replication:
       username: supabase_replication_admin
       password: "$PT_REPL_PASSWORD"
-  # 与镜像自带 pg_hba.conf 逐行一致,外加 replication 行(镜像自带的 all 不匹配复制连接)。
-  pg_hba:
-    - local all supabase_admin scram-sha-256
-    - local all all peer map=supabase_map
-    - host all all 127.0.0.1/32 trust
-    - host all all ::1/128 trust
-    - host replication supabase_replication_admin 127.0.0.1/32 trust
-    - host replication supabase_replication_admin ::1/128 trust
-    # 成员跨机房、走公网地址:这里放开来源,谁能连由源站防火墙(fleet_allowlist)管,pg_hba 里不列节点 IP。
-    - host replication supabase_replication_admin 0.0.0.0/0 scram-sha-256
-    - host replication supabase_replication_admin ::/0 scram-sha-256
-    - host all all 10.0.0.0/8 scram-sha-256
-    - host all all 172.16.0.0/12 scram-sha-256
-    - host all all 192.168.0.0/16 scram-sha-256
-    - host all all 0.0.0.0/0 scram-sha-256
-    - host all all ::0/0 scram-sha-256
   pg_ident:
     - supabase_map postgres postgres
     - supabase_map root postgres
