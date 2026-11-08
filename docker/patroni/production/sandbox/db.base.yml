@@ -26,6 +26,14 @@ services:
     networks:
       sbx:
         ipv4_address: ${SBX_DB_IP}
+  # 替身的「其它服务」:验证 patroni_update_services 只动它、不重建 db(生产里是 auth / kong / storage / realtime …)
+  aux:
+    container_name: pt-aux-${SBX_M}
+    image: pt-clients:latest
+    restart: unless-stopped
+    network_mode: none
+    mem_limit: 64m
+    command: ["sleep", "infinity"]
 networks:
   sbx:
     external: true
