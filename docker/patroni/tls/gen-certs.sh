@@ -19,8 +19,7 @@ echo "# 服务级配置(所有机器相同)"; echo "TLS_CA_B64=$(base64 < ca.crt
 for m in $MACHINES; do
   name=${m%%=*}; ips=${m#*=}; san=""; for a in ${ips//,/ }; do san="$san,IP:$a"; done
   openssl ecparam -name prime256v1 -genkey -noout -out "$name.key"
-  # 节点证书不带 CN:etcd 开认证后,带 CN 的客户端证书走 HTTP 网关会被拒(Patroni 的 etcd3 客户端走的就是网关),身份靠 SAN 里的地址
-  openssl req -new -key "$name.key" -subj "/O=one-patroni" -out "$name.csr"
+  openssl req -new -key "$name.key" -subj "/CN=$name" -out "$name.csr"
   printf 'basicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth,clientAuth\nsubjectAltName=IP:127.0.0.1,DNS:localhost%s\n' "$san" > "$name.ext"
   openssl x509 -req -in "$name.csr" -CA ca.crt -CAkey ca.key -CAcreateserial -sha256 -days "$DAYS" -extfile "$name.ext" -out "$name.crt" 2>/dev/null
   echo "# 每机配置: $name"; echo "TLS_CRT_B64=$(base64 < "$name.crt" | tr -d '\n')"; echo "TLS_KEY_B64=$(base64 < "$name.key" | tr -d '\n')"

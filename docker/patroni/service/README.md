@@ -5,4 +5,4 @@
 证书:`../tls/gen-certs.sh` 生成私有 CA 与每机节点证书,按 base64 填进每机配置(`TLS_CRT_B64` / `TLS_KEY_B64`)和服务配置(`TLS_CA_B64`)。
 应急操作(状态 / 设为主库 / 暂停恢复 / 停掉这台 / 重新加入)走 one 的应急系统能力 `supabase.patroni_*`,不在这里。
 迁移期:`ENTRY_BACKUP`(旧主库 IP:端口)让库入口把旧主库当备用后端,服务先改连入口再切主;迁移完清空。`secrets` 里的超级用户口令取自 system_config,不在这里抄第二份。
-接管后 etcd 打开认证:`PT_ETCD_USER` / `PT_ETCD_PASSWORD` / `ETCD_ROOT_CREDENTIALS` 由应急系统写进本机服务 env(和平台每机配置里的同名项保持一致,平台重部署不能丢)。`db-config` 卷沿用原 supabase 的,全新机器自动创建。
+etcd 使用双向证书,接管不换口令。`db-config` 卷沿用原 supabase 的,全新机器自动创建;旧卷根密钥不一致时须先按迁移清单停从库、保存旧密钥到密钥库并统一为主库密钥,容器启动不会自行覆盖。

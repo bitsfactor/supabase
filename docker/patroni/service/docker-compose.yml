@@ -25,7 +25,6 @@ services:
     # 两机房同时坏后单台重建投票组(etcd --force-new-cluster)用;平时恒为 false。
     environment:
       ETCD_FORCE_NEW_CLUSTER: "${ETCD_FORCE_NEW_CLUSTER:-false}"
-      ETCDCTL_USER: "${ETCD_ROOT_CREDENTIALS:-}"      # 接管后 etcd 开了认证:容器里的 etcdctl 用 root 凭据
     command:
       - etcd
       - --name=${ETCD_NAME}
@@ -79,8 +78,6 @@ services:
       PT_MAX_PREPARED_TRANSACTIONS: ${PT_MAX_PREPARED_TRANSACTIONS:-0}
       PT_STANDBY_HOST: ${PT_STANDBY_HOST:-}      # 迁移期:整个 Patroni 集群先当现主库的备用集群(切主时 edit-config 去掉)
       PT_STANDBY_PORT: ${PT_STANDBY_PORT:-5433}      # 直连库端口(5432 是连接池)
-      PT_ETCD_USER: ${PT_ETCD_USER:-}
-      PT_ETCD_PASSWORD: ${PT_ETCD_PASSWORD:-}
       PT_PGSODIUM_ROOT_KEY: ${PT_PGSODIUM_ROOT_KEY:-}      # 来自密钥库,启动前放进 db-config 卷(pgsodium-key.sh)
       PT_STANDBY_SLOT: ${PT_STANDBY_SLOT:-}
       PT_NOSYNC: ${PT_NOSYNC:-false}
@@ -98,8 +95,6 @@ services:
       ENTRY_PORT: "5000"
       PT_SCOPE: ${PT_SCOPE:-supabase-main}
       PT_ETCD_HOSTS: ${PT_ETCD_HOSTS}      # 非投票机也要能读 etcd(confd 盯成员表)
-      PT_ETCD_USER: ${PT_ETCD_USER:-}
-      PT_ETCD_PASSWORD: ${PT_ETCD_PASSWORD:-}
       ENTRY_BACKUP: ${ENTRY_BACKUP:-}      # 仅迁移期:旧主库 IP:端口,当备用后端(迁移完清空)
   guard:
     profiles: [guard]

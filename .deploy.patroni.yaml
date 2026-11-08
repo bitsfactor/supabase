@@ -89,18 +89,6 @@ config_schema:
     label: compose 档(投票机填 etcd,其余留空)
     type: text
     default: ""
-  - key: PT_ETCD_USER
-    label: etcd 凭据用户(两机房同时坏接管后由应急系统写入)
-    type: text
-    default: ""
-  - key: PT_ETCD_PASSWORD
-    label: etcd 凭据口令(同上)
-    type: password
-    default: ""
-  - key: ETCD_ROOT_CREDENTIALS
-    label: etcd root 凭据 root:口令(同上)
-    type: password
-    default: ""
   - key: TLS_CRT_B64
     label: 本机节点证书(base64)
     type: password
