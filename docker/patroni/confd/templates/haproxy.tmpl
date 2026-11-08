@@ -18,8 +18,13 @@ defaults
     option srvtcpka
 
 listen pg_primary
-    bind *:$ENTRY_PORT
-$BACKENDS
+    bind *:{{getenv "ENTRY_PORT"}}
+    option httpchk GET /primary
+    http-check expect status 200
+    default-server inter 1s fall 2 rise 2 on-marked-down shutdown-sessions check-ssl verify required ca-file /tls/ca.crt crt /tls/node.pem
+# BEGIN-SERVERS
+{{range gets "/members/*"}}{{$d := json .Value}}    server {{base .Key}} {{index (split (index (split $d.conn_url "/") 2) ":") 0}}:{{index (split (index (split $d.conn_url "/") 2) ":") 1}} check port {{index (split (index (split $d.api_url "/") 2) ":") 1}}
+{{end}}# END-SERVERS
 
 # 平台健康探针:入口进程在跑就回 200
 frontend health

@@ -1,0 +1,7 @@
+# confd(Patroni 官方 HAProxy 做法):盯着 Patroni 写在 etcd 里的成员表,渲染库入口配置并平滑重载。
+# 成员表的前缀(/one/<集群名>)由入口脚本用 -prefix 传入;新部署的库机器一注册就出现在每台入口里,不用手工维护后端表。
+[template]
+src = "haproxy.tmpl"
+dest = "/tmp/haproxy.cfg"
+keys = ["/members"]
+reload_cmd = "kill -USR2 1"
