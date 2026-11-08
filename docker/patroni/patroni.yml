@@ -90,7 +90,7 @@ postgresql:
     on_role_change: /opt/patroni/on-role-change.sh
 
 tags:
-  nofailover: false
+  nofailover: $PT_NOFAILOVER
   noloadbalance: false
   clonefrom: false
   nosync: $PT_NOSYNC

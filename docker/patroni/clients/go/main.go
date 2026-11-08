@@ -30,13 +30,37 @@ type fail struct {
 	Err string  `json:"err"`
 }
 
+// MODE=ctx:取消探针 —— 对被隔离的主库发一条 insert,3 秒后 context 超时(pgx 缺省的取消方式)。
+func cancelProbe() {
+	ctx, stop := context.WithTimeout(context.Background(), 3*time.Second)
+	defer stop()
+	id, _ := strconv.Atoi(os.Getenv("ROW_ID"))
+	dsn := fmt.Sprintf("postgres://supabase_admin:%s@%s:5432/postgres?connect_timeout=15", os.Getenv("PGPASSWORD"), os.Getenv("PGHOST"))
+	pool, err := pgxpool.New(context.Background(), dsn)
+	if err != nil {
+		fmt.Println("RESULT go-ctx: 连接失败", err)
+		return
+	}
+	t0 := time.Now()
+	_, err = pool.Exec(ctx, "insert into pt_cancel values ($1, 'go-ctx')", id)
+	if err != nil {
+		fmt.Printf("RESULT go-ctx: 报错 %.60s(%dms)\n", err.Error(), time.Since(t0).Milliseconds())
+		return
+	}
+	fmt.Printf("RESULT go-ctx: 成功返回(%dms)\n", time.Since(t0).Milliseconds())
+}
+
 func main() {
+	if os.Getenv("MODE") == "ctx" {
+		cancelProbe()
+		return
+	}
 	name := env("CLIENT_NAME", "go")
 	workers, _ := strconv.Atoi(env("WORKERS", "2"))
 	intervalMs, _ := strconv.Atoi(env("INTERVAL_MS", "20"))
 	gidBase, _ := strconv.Atoi(env("GID_BASE", "3"))
-	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?connect_timeout=%s&pool_max_conns=10&statement_timeout=30000",
-		env("PGUSER", "supabase_admin"), os.Getenv("PGPASSWORD"), os.Getenv("PGHOST"), env("PGPORT", "5433"), env("PGDATABASE", "postgres"), env("CONNECT_TIMEOUT", "15"))
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?connect_timeout=%s&pool_max_conns=10&statement_timeout=30000&target_session_attrs=%s",
+		env("PGUSER", "supabase_admin"), os.Getenv("PGPASSWORD"), os.Getenv("PGHOST"), env("PGPORT", "5433"), env("PGDATABASE", "postgres"), env("CONNECT_TIMEOUT", "15"), env("TSA", "any"))
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		panic(err)

@@ -21,6 +21,13 @@ drills/01-migrate.sh                         # 演练 1:冷迁移(备集群 → 
 drills/02-site-cut.sh                        # 演练 2:主库所在机房断网,90 秒后直接恢复
 drills/03-switchover-and-faults.sh           # 演练 3:切回 / 断一票 / 断一台从库 / 断主库 / 两台库同时断 / 复制槽
 drills/04-cancel-commit.sh                   # 演练 4:隔离期间被取消的提交
+drills/05-node-recovery.sh '名字|ENV=值 ...'  # postgres.js 换主恢复时间(变体对比)
+drills/06-quorum-nosync.sh [轮数]            # 断主库机器时谁当新主(LOS_NOFAILOVER=1 把 los 设为不参选)
+drills/07-cancel-drivers.sh                  # 各驱动取消提交的结果
 drills/down-all.sh                           # 只删本目录建的容器 / 卷 / 网络(精确名字,不 prune)
 ```
 `LATENCY=1` 注入站点间真实往返(drills/netem.sh)。结果落在 `drills/../out/`(不入库)。
+
+## 连接串要求(演练结论)
+所有经库入口连库的客户端都要带 `target_session_attrs=primary`:换主窗口里入口可能把连接转给刚降级的旧主(热备库),不带的话连接池会一直拿到只读连接。
+postgres.js 必须写 `primary`(它的 `read-write` 在 PG 14+ 识别不出备库);同时把 `backoff` 换成封顶 2 秒的函数(缺省最长约 20 秒,且失败次数是整个池共用)。

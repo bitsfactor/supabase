@@ -205,6 +205,7 @@ services:
       PT_NAME: los
       PT_HOST: pt-los
       PT_NOSYNC: "true"
+      PT_NOFAILOVER: "${PT_LOS_NOFAILOVER:-false}"
     volumes:
       - pt-data-los:/var/lib/postgresql/data
       - pt-cfg-los:/etc/postgresql-custom

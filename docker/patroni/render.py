@@ -12,6 +12,7 @@ ENV_DEFAULTS = {
     "PT_MAX_WORKER_PROCESSES": "8",
     "PT_SYNC": "false",
     "PT_NOSYNC": "false",
+    "PT_NOFAILOVER": "false",
 }
 
 

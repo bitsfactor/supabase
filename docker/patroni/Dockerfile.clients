@@ -10,7 +10,7 @@ COPY --from=node:20-slim /usr/local/bin/node /usr/local/bin/node
 COPY --from=node:20-slim /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
 WORKDIR /app
-COPY clients/node/package.json clients/node/client.mjs /app/node/
+COPY clients/node/package.json clients/node/client.mjs clients/node/cancel.mjs /app/node/
 RUN cd /app/node && npm install --omit=dev --no-audit --no-fund
 RUN pip install --no-cache-dir "psycopg[binary,pool]"
 COPY clients/py/ /app/py/

@@ -20,6 +20,11 @@ swap_to_patroni() { # swap_to_patroni <节点> —— 停旧容器(干净停机)
 
 mark "START 持续写入(三客户端 × 经库入口 → 旧主 ny1)"
 clients_start ny ny1
+# 库入口先装好(四台库机器都装,此时都指向现主 ny1);洛杉矶侧的客户端也经本机入口 —— 入口用独立端口,不碰库容器占着的端口
+if [ "${ENTRY_ALL:-1}" = 1 ]; then
+  HA_MODE=legacy HA_LEGACY=ny1=$(dbip ny1) pt_compose up -d ha-mia ha-los ha-los2 >/dev/null 2>&1
+  sleep 3; clients_start la los
+fi
 sleep 8
 
 mark "ETCD 起 5 个投票机"
@@ -51,7 +56,9 @@ if [ "$STOP_FIRST" = 1 ]; then
 fi
 ptctl mia edit-config --force -s standby_cluster=null -s synchronous_mode=quorum >/dev/null 2>&1
 mark "CUT-PROMOTE 已去掉备集群(Patroni 提升中)"
-docker exec -e HA_MODE=patroni pt-ha-ny1 sh -c 'python3 /opt/ha/haproxy-render.py > /tmp/haproxy.cfg.new && mv /tmp/haproxy.cfg.new /tmp/haproxy.cfg && kill -USR2 1'   # 平滑重载,不重建容器
+for n in $PT_NODES; do   # 四个入口都平滑重载为按 /primary 找主(不重建容器)
+  docker exec -e HA_MODE=patroni "pt-ha-$n" sh -c 'python3 /opt/ha/haproxy-render.py > /tmp/haproxy.cfg.new && mv /tmp/haproxy.cfg.new /tmp/haproxy.cfg && kill -USR2 1' 2>/dev/null || true
+done
 mark "CUT-ENTRY 库入口平滑重载为按 /primary 找主"
 wait_until 90 "mia 成为主" bash -c "[ \"$(leader mia)\" = mia ]" || true
 wait_until 90 "mia 成为主" bash -c "docker exec pt-mia curl -s -m 2 -o /dev/null -w '%{http_code}' http://localhost:8008/primary | grep -q 200"

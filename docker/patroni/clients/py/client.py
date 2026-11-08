@@ -13,7 +13,7 @@ workers = int(E.get("WORKERS", "2"))
 interval = int(E.get("INTERVAL_MS", "20")) / 1000
 gid_base = int(E.get("GID_BASE", "5"))
 conninfo = (f"host={E['PGHOST']} port={E.get('PGPORT', '5433')} user={E.get('PGUSER', 'supabase_admin')} "
-            f"password={E['PGPASSWORD']} dbname={E.get('PGDATABASE', 'postgres')} connect_timeout={E.get('CONNECT_TIMEOUT', '15')} "
+            f"password={E['PGPASSWORD']} dbname={E.get('PGDATABASE', 'postgres')} connect_timeout={E.get('CONNECT_TIMEOUT') or '15'} target_session_attrs={E.get('TSA') or 'any'} "
             f"options='-c statement_timeout=30000'")
 pool = ConnectionPool(conninfo, min_size=2, max_size=10, open=True, timeout=30,
                       check=ConnectionPool.check_connection)

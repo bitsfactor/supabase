@@ -82,7 +82,7 @@ clients_start() { # clients_start <ny|la> [入口节点,缺省 ny→ny1 la→los
     docker rm -f "pt-cli-$site-$k" >/dev/null 2>&1 || true
     docker run -d --name "pt-cli-$site-$k" --network "$PT_NET" --ip "$(cli_ip "$site-$k")" --cap-add NET_ADMIN --memory 512m \
       -e PGHOST="$(haip "$entry")" -e PGPORT=5433 -e PGPASSWORD="$PT_PW" -e CLIENT_NAME="$site-$k" -e GID_BASE="$(cli_gid "$site-$k")" \
-      -e WORKERS=2 -e INTERVAL_MS=20 -e CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-15}" -e NODE_BACKOFF="${NODE_BACKOFF:-}" pt-clients:latest sh -c "exec $cmd" >/dev/null
+      -e WORKERS=2 -e INTERVAL_MS=20 -e CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-}" -e NODE_BACKOFF="${NODE_BACKOFF:-}" -e TSA="${TSA:-}" -e TIMELINE="${TIMELINE:-}" -e NODE_OPTS="${NODE_OPTS:-}" -e NODE_PROFILE="${NODE_PROFILE:-xvideo}" pt-clients:latest sh -c "exec $cmd" >/dev/null
   done
 }
 clients_stop() { # clients_stop <输出文件> —— 优雅停(等它们打印汇总),汇总追加到文件,再删容器
@@ -147,4 +147,16 @@ load_reset() {
     if [ "$(docker exec "pt-$n" curl -s -m 2 -o /dev/null -w '%{http_code}' http://localhost:8008/primary 2>/dev/null)" = 200 ]; then dbexec "$n" "truncate pt_load"; return 0; fi
   done
   return 1
+}
+
+# 保证 <节点> 是主(不是就计划内切过去,最多试 3 次),并等集群健康
+ensure_leader() {
+  local want=$1 try cur n
+  for try in 1 2 3; do
+    cur=""; for n in ny1 mia los los2; do cur=$(leader "$n"); [ -n "$cur" ] && break; done
+    if [ "$cur" = "$want" ]; then wait_until 120 "集群健康" cluster_healthy "$want" && return 0; fi
+    [ -n "$cur" ] && ptctl "$want" switchover --leader "$cur" --candidate "$want" --force >/dev/null 2>&1
+    wait_until 60 "$want 成为主" bash -c "[ \"\$(docker exec pt-$want curl -s -o /dev/null -w '%{http_code}' http://localhost:8008/primary)\" = 200 ]"
+  done
+  wait_until 120 "集群健康" cluster_healthy "$want"
 }
