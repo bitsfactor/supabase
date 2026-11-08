@@ -9,6 +9,8 @@ mkdir -p /var/run/postgresql /var/log/patroni /etc/patroni
 chown postgres:postgres /var/run/postgresql /var/log/patroni
 chmod 03775 /var/run/postgresql
 # 数据目录必须已属于 postgres(uid 105)且为 0700;不在这里递归 chown(生产数据目录是 TB 级)。
+# 全新的数据卷(新机器加入时)顶层目录归 root:只改顶层的属主,不递归(生产数据目录是 TB 级)。
+chown postgres:postgres "${PGDATA:-/var/lib/postgresql/data}"
 chmod 0700 "${PGDATA:-/var/lib/postgresql/data}"
 # 证书:从只读挂载的 /tls 拷出并交给 postgres(私钥 0600),Patroni 与 patronictl 都读 /etc/patroni/tls
 install -d -o postgres -g postgres -m 0700 /etc/patroni/tls

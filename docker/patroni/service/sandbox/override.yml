@@ -1,0 +1,31 @@
+# 测试专用(us-los2 上一台宿主模拟多台「机器」,容器全是 pt- 前缀):叠在 ../docker-compose.yml 上。
+# 只改名字 / 网络 / 挂载,不发布宿主端口(宿主上有生产服务);其余与生产定义一致。
+# 变量:SBX_M(机器名)、SBX_DB_IP / SBX_HA_IP / SBX_GUARD_IP;ETCD_IP 来自该机的 env。
+services:
+  tls-init:
+    container_name: pt-tls-init-${SBX_M}
+  etcd:
+    container_name: pt-etcd-${SBX_M}
+    ports: !reset []
+    networks: {sbx: {ipv4_address: "${ETCD_IP}"}}
+  db:
+    container_name: pt-db-${SBX_M}
+    ports: !reset []
+    cap_add: [NET_ADMIN]
+    environment:
+      PT_TEST_PG_REDIRECT: "5433"
+    volumes: !override
+      - data:/var/lib/postgresql/data
+      - pt-tls:/tls:ro
+    networks: {sbx: {ipv4_address: "${SBX_DB_IP}"}}
+  ha:
+    container_name: pt-ha-${SBX_M}
+    ports: !reset []
+    networks: {sbx: {ipv4_address: "${SBX_HA_IP}"}}
+  guard:
+    container_name: pt-guard-${SBX_M}
+    networks: {sbx: {ipv4_address: "${SBX_GUARD_IP}"}}
+networks:
+  sbx: {external: true, name: patroni-test}
+volumes:
+  data: {name: "pt-data-${SBX_M}"}

@@ -20,3 +20,9 @@ defaults
 listen pg_primary
     bind *:$ENTRY_PORT
 $BACKENDS
+
+# 平台健康探针:入口进程在跑就回 200
+frontend health
+    mode http
+    bind 127.0.0.1:8009
+    monitor-uri /health

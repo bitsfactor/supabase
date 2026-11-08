@@ -9,8 +9,8 @@ name: "$PT_NAME"
 restapi:
   listen: 0.0.0.0:8008
   connect_address: "$PT_HOST:$PT_REST_PORT"
-  certfile: /etc/patroni/tls/patroni.crt
-  keyfile: /etc/patroni/tls/patroni.key
+  certfile: /etc/patroni/tls/node.crt
+  keyfile: /etc/patroni/tls/node.key
   cafile: /etc/patroni/tls/ca.crt
   verify_client: required
   authentication:
@@ -21,21 +21,19 @@ restapi:
 ctl:
   insecure: false
   cacert: /etc/patroni/tls/ca.crt
-  certfile: /etc/patroni/tls/patroni.crt
-  keyfile: /etc/patroni/tls/patroni.key
+  certfile: /etc/patroni/tls/node.crt
+  keyfile: /etc/patroni/tls/node.key
   authentication:
     username: patroni
     password: "$PT_REST_PASSWORD"
 
-# etcd:TLS(校验服务端证书)+ 客户端证书 + 用户名口令(该用户只能读写 /one/ 前缀,见 etcd-auth.sh)
+# etcd:双向 TLS(同一个私有 CA 签发的节点证书),不开 etcd 用户认证
 etcd3:
   hosts: "$PT_ETCD_HOSTS"
   protocol: https
   cacert: /etc/patroni/tls/ca.crt
-  cert: /etc/patroni/tls/etcd-client.crt
-  key: /etc/patroni/tls/etcd-client.key
-  username: patroni
-  password: "$ETCD_PATRONI_PASSWORD"
+  cert: /etc/patroni/tls/node.crt
+  key: /etc/patroni/tls/node.key
 
 bootstrap:
   dcs:
@@ -53,6 +51,9 @@ bootstrap:
       - type: logical
     postgresql:
       use_pg_rewind: true
+      # 坏机回来自动变回从库:倒回失败就删掉数据目录重拷;时间线分叉也删了重拷(operator 2026-11-08 定)
+      remove_data_directory_on_rewind_failure: true
+      remove_data_directory_on_diverged_timelines: true
       use_slots: true
       # 下面这些是 Patroni 要求「各节点必须一致」的参数(从库值不得小于主库),全部取自环境变量、
       # 没有缺省值:生产值见 production/params.env,上线前必须与现主库 SHOW 的结果核对(production/README.md)。

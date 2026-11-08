@@ -2,8 +2,8 @@
 ARG HAPROXY_TAG=2.8-alpine
 FROM haproxy:${HAPROXY_TAG}
 USER root
-RUN apk add --no-cache python3 iptables
+RUN apk add --no-cache python3 iptables openssh-client
 COPY haproxy-render.py haproxy.cfg.tpl /opt/ha/
-COPY ha-entrypoint.sh /opt/ha/
-RUN chmod +x /opt/ha/ha-entrypoint.sh
+COPY ha-entrypoint.sh tls-init.sh guard.py /opt/ha/
+RUN chmod +x /opt/ha/ha-entrypoint.sh /opt/ha/tls-init.sh
 ENTRYPOINT ["/opt/ha/ha-entrypoint.sh"]

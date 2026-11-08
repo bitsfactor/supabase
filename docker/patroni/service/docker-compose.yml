@@ -1,0 +1,107 @@
+# Patroni 服务(平台标准部署,.deploy.patroni.yaml):库(Patroni + Postgres)、etcd 投票成员、库入口 HAProxy、盯守。
+# 一台库机器 = 部署本服务一次;节点身份(PT_NAME / PT_HOST / ETCD_NAME / ETCD_IP / 证书)来自每机配置(.env)。
+#   etcd 只在三台投票机上:每机配置里 COMPOSE_PROFILES=etcd;后加的库机器不带它(投票组不变)。
+#   guard 只在两机房同时坏、operator 点「设为主库」接管时由应急系统在新主库机器上拉起(profile guard)。
+name: patroni
+x-tls: &tls {pt-tls: {}}
+services:
+  tls-init:
+    build: {context: .., dockerfile: Dockerfile.haproxy}
+    image: one-patroni-haproxy:2.8
+    container_name: pt-tls-init
+    restart: "no"
+    entrypoint: ["/opt/ha/tls-init.sh"]
+    environment: {TLS_CA_B64: "${TLS_CA_B64}", TLS_CRT_B64: "${TLS_CRT_B64}", TLS_KEY_B64: "${TLS_KEY_B64}"}
+    volumes: ["pt-tls:/tls"]
+  etcd:
+    profiles: [etcd]
+    image: quay.io/coreos/etcd:v3.5.17
+    container_name: pt-etcd
+    restart: unless-stopped
+    depends_on: {tls-init: {condition: service_completed_successfully}}
+    ports: ["2379:2379", "2380:2380"]
+    volumes: ["pt-tls:/tls:ro", "pt-etcd-data:/data"]
+    mem_limit: 512m
+    # 两机房同时坏后单台重建投票组(etcd --force-new-cluster)用;平时恒为 false。
+    environment:
+      ETCD_FORCE_NEW_CLUSTER: "${ETCD_FORCE_NEW_CLUSTER:-false}"
+    command:
+      - etcd
+      - --name=${ETCD_NAME}
+      - --data-dir=/data
+      - --listen-client-urls=https://0.0.0.0:2379
+      - --advertise-client-urls=https://${ETCD_IP}:2379
+      - --listen-peer-urls=https://0.0.0.0:2380
+      - --initial-advertise-peer-urls=https://${ETCD_IP}:2380
+      - --initial-cluster-token=one-patroni
+      - --initial-cluster=${ETCD_INITIAL_CLUSTER}
+      - --initial-cluster-state=${ETCD_INITIAL_CLUSTER_STATE:-new}
+      - --cert-file=/tls/node.crt
+      - --key-file=/tls/node.key
+      - --trusted-ca-file=/tls/ca.crt
+      - --client-cert-auth
+      - --peer-cert-file=/tls/node.crt
+      - --peer-key-file=/tls/node.key
+      - --peer-trusted-ca-file=/tls/ca.crt
+      - --peer-client-cert-auth
+      - --heartbeat-interval=200
+      - --election-timeout=2000
+      - --auto-compaction-mode=periodic
+      - --auto-compaction-retention=1h
+  db:
+    build: {context: .., dockerfile: Dockerfile}
+    image: one-patroni:15.8.1.085-p4.1.1
+    container_name: pt-db
+    restart: unless-stopped
+    depends_on: {tls-init: {condition: service_completed_successfully}}
+    shm_size: 16gb
+    ports: ["5433:5432", "8008:8008"]
+    volumes:
+      - ${PT_DATA_DIR:-/opt/supabase/docker/volumes/db/data}:/var/lib/postgresql/data
+      - pt-tls:/tls:ro
+    environment:
+      PT_SCOPE: ${PT_SCOPE:-supabase-main}
+      PT_NAME: ${PT_NAME}
+      PT_HOST: ${PT_HOST}
+      PT_PG_PORT: ${PT_PG_PORT:-5433}
+      PT_REST_PORT: ${PT_REST_PORT:-8008}
+      PT_ETCD_HOSTS: ${PT_ETCD_HOSTS}
+      PT_REST_PASSWORD: ${PT_REST_PASSWORD}
+      PT_SUPERUSER_PASSWORD: ${PT_SUPERUSER_PASSWORD}
+      PT_REPL_PASSWORD: ${PT_REPL_PASSWORD}
+      PT_MAX_CONNECTIONS: ${PT_MAX_CONNECTIONS:-2000}
+      PT_MAX_WAL_SENDERS: ${PT_MAX_WAL_SENDERS:-10}
+      PT_MAX_REPLICATION_SLOTS: ${PT_MAX_REPLICATION_SLOTS:-10}
+      PT_MAX_WORKER_PROCESSES: ${PT_MAX_WORKER_PROCESSES:-8}
+      PT_MAX_LOCKS_PER_TRANSACTION: ${PT_MAX_LOCKS_PER_TRANSACTION:-64}
+      PT_MAX_PREPARED_TRANSACTIONS: ${PT_MAX_PREPARED_TRANSACTIONS:-0}
+      PT_STANDBY_HOST: ${PT_STANDBY_HOST:-}      # 迁移期:整个 Patroni 集群先当现主库的备用集群(切主时 edit-config 去掉)
+      PT_STANDBY_PORT: ${PT_STANDBY_PORT:-5433}
+      PT_STANDBY_SLOT: ${PT_STANDBY_SLOT:-}
+      PT_NOSYNC: ${PT_NOSYNC:-false}
+      PT_SYNC: ${PT_SYNC:-false}
+  ha:
+    build: {context: .., dockerfile: Dockerfile.haproxy}
+    image: one-patroni-haproxy:2.8
+    container_name: pt-ha
+    restart: unless-stopped
+    depends_on: {tls-init: {condition: service_completed_successfully}}
+    ports: ["5000:5000"]
+    volumes: ["pt-tls:/tls:ro"]
+    mem_limit: 256m
+    environment:
+      ENTRY_PORT: "5000"
+      HA_MODE: patroni
+      HA_NODES: ${HA_NODES}
+  guard:
+    profiles: [guard]
+    image: one-patroni-haproxy:2.8
+    container_name: pt-guard
+    restart: unless-stopped
+    entrypoint: ["python3", "/opt/ha/guard.py", "run"]
+    volumes: ["pt-guard:/guard"]
+    mem_limit: 128m
+volumes:
+  pt-tls:
+  pt-etcd-data:
+  pt-guard:

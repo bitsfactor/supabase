@@ -4,7 +4,7 @@
   static   迁移前后备:固定转给当前主库(HA_STATIC=名=IP[:端口],端口缺省 5432),TCP 探活。
 两种模式换主 / 后端下线时都 on-marked-down shutdown-sessions 掐断旧连接。
 HA_NODES(patroni 模式):名=IP[:库端口[:REST端口]],逗号分隔;库端口缺省 5432、REST 缺省 8008。
-证书(patroni 模式):/tls/ca.crt 与 /tls/patroni.pem(本机 Patroni 证书 + 私钥,同一 CA 签发即被各成员 REST 接受)。"""
+证书(patroni 模式):/tls/ca.crt 与 /tls/node.pem(本机 Patroni 证书 + 私钥,同一 CA 签发即被各成员 REST 接受)。"""
 import os
 import string
 import sys
@@ -17,7 +17,7 @@ if mode == "patroni":
         "    option httpchk GET /primary",
         "    http-check expect status 200",
         "    default-server inter 1s fall 2 rise 2 on-marked-down shutdown-sessions"
-        " check-ssl verify required ca-file /tls/ca.crt crt /tls/patroni.pem",
+        " check-ssl verify required ca-file /tls/ca.crt crt /tls/node.pem",
     ]
     for item in os.environ["HA_NODES"].split(","):
         name, addr = item.split("=")

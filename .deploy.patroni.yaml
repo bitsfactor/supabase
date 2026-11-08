@@ -1,0 +1,114 @@
+# =============================================================================
+# Deployment manifest for patroni —— 库的自动选主(Patroni + etcd 投票成员 + 库入口 HAProxy)。
+# 与 supabase 同仓(平台的「同仓多服务」约定:本清单叫 .deploy.patroni.yaml),只部署三台库机器 + 以后新加的库机器。
+# 每机配置(service_node_config)放节点身份与证书;服务配置放全舰队共用的项。
+# 部署一次 = 这台机器成为 Patroni 成员:有主就自动从主库拷数据当从库(新库机器就这样加入);坏机恢复后 Patroni 自动倒回 / 重拷。
+# 一次性迁移(把现有 supabase-db 换成本服务)按 docs/db-switchover-smooth-progress.md「迁移清单」逐步做。
+# =============================================================================
+
+service: patroni
+runtime: compose
+compose_file: docker/patroni/service/docker-compose.yml
+install_dir_template: /opt/{name}
+
+config_schema:
+  # ---- 服务级(所有库机器相同) ----
+  - key: PT_SCOPE
+    label: Patroni 集群名
+    type: text
+    default: supabase-main
+  - key: TLS_CA_B64
+    label: 私有 CA 证书(base64)
+    type: password
+    required: true
+    help: tls/gen-certs.sh 的输出
+  - key: PT_ETCD_HOSTS
+    label: etcd 投票成员地址
+    type: text
+    required: true
+    help: 三个投票成员的 IP:2379,逗号分隔
+  - key: ETCD_INITIAL_CLUSTER
+    label: etcd 初始成员表
+    type: text
+    required: true
+    help: etcd-us-ny1=https://IP:2380,etcd-us-mia=https://IP:2380,etcd-us-los=https://IP:2380
+  - key: HA_NODES
+    label: 库入口后端表
+    type: text
+    required: true
+    help: 名字=IP:5433:8008,逗号分隔(每台库机器一项;新加库机器后在这里加一项再重部署入口)
+  - key: PT_REST_PASSWORD
+    label: Patroni REST 写口令
+    type: password
+    required: true
+  - key: PT_SUPERUSER_PASSWORD
+    label: 库超级用户 supabase_admin 的口令
+    type: password
+    required: true
+  - key: PT_REPL_PASSWORD
+    label: 复制账号 supabase_replication_admin 的口令
+    type: password
+    required: true
+  - key: PT_MAX_CONNECTIONS
+    label: max_connections(各节点必须一致)
+    type: integer
+    default: "2000"
+  # ---- 每机级(节点身份与证书,用每机配置覆盖) ----
+  - key: PT_NAME
+    label: 成员名(= 节点名)
+    type: text
+    required: true
+  - key: PT_HOST
+    label: 本机对外地址
+    type: text
+    required: true
+  - key: ETCD_NAME
+    label: etcd 成员名(仅投票机)
+    type: text
+    default: ""
+  - key: ETCD_IP
+    label: etcd 地址(仅投票机)
+    type: text
+    default: ""
+  - key: PT_STANDBY_HOST
+    label: 迁移期:跟随的现主库地址
+    type: text
+    default: ""
+    help: 仅一次性迁移用(备用集群),平时留空
+  - key: PT_STANDBY_SLOT
+    label: 迁移期:现主库上的复制槽名
+    type: text
+    default: ""
+  - key: COMPOSE_PROFILES
+    label: compose 档(投票机填 etcd,其余留空)
+    type: text
+    default: ""
+  - key: TLS_CRT_B64
+    label: 本机节点证书(base64)
+    type: password
+    required: true
+  - key: TLS_KEY_B64
+    label: 本机节点私钥(base64)
+    type: password
+    required: true
+
+exposed_ports:
+  - 5000
+
+# 库入口的健康探针(HAProxy monitor-uri):入口进程在跑就是 200;库本身的健康看应急系统状态。
+healthcheck:
+  url: http://127.0.0.1:8009/health
+  expect_status: 200
+  timeout_seconds: 60
+  retries: 24
+  interval_seconds: 5
+  start_period_seconds: 30
+
+volumes: []
+# 卸载只保留数据:库数据目录在 supabase 的 docker/volumes/db 下,不归本服务删。
+preserve_on_uninstall:
+  - pt-etcd-data
+  - pt-guard
+
+depends_on: []
+hooks: {}
