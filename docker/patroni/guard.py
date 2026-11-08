@@ -3,14 +3,15 @@
 把它的 db / etcd / 入口容器停掉并设为不自启,防止它带着旧数据回来当第二个主。状态在 /guard/state.json。
 
 目标机上的钥匙是专用的:authorized_keys 里那一行带强制命令,只能停该机的库 / 入口 / etcd 容器并设为不自启(restrict),
-所以这里 ssh 过去不带任何自己的命令。私钥在 /guard/keys/<目标名>(接管时经标准输入送来,撤销盯守时删掉)。
+停机只发 stop,核实时发只读 check。私钥在 /guard/keys/<目标名>,已安装核实的公钥指纹在同目录 <目标名>.verified。
 
 用法(容器里):
   guard.py run                      常驻循环
-  guard.py keys                     标准输入读 {"目标名": "私钥文本"},写进 /guard/keys
+  guard.py keys                     标准输入读 {"目标名": {"private": "私钥", "fingerprint": "已核实公钥指纹"}},写进原卷
   guard.py add NAME 探测host:端口[,host:端口…] 用户@ssh主机:端口 [--existing-only]   登记目标;重试只更新已有目标
   guard.py clear NAME               撤销盯守(重新加入时):删登记和这台的私钥
   guard.py show                     打印状态
+  guard.py verify                   核对卷内私钥指纹与核实记录;SSH可达则实际认证,不可达不阻断
 """
 import fcntl
 import json
@@ -78,13 +79,49 @@ def reachable(probe):
     return False
 
 
+def remote_command(name, target, action, timeout_seconds):
+    user_host, _, port = target["ssh"].rpartition(":")
+    return subprocess.run(["ssh", "-i", os.path.join(KEYS, name), "-o", "IdentitiesOnly=yes", "-o", "IdentityAgent=none", "-o", "BatchMode=yes",
+                           "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=accept-new", "-p", port, user_host, action],
+                          capture_output=True, text=True, timeout=timeout_seconds)
+
+
 def stop_remote(name, target):
     """强制命令核实过目标机上的容器全停了、重启策略是 no 才会打印 STOPPED(NOT_STOPPED = 没停成)."""
-    user_host, _, port = target["ssh"].rpartition(":")
-    done = subprocess.run(["ssh", "-i", os.path.join(KEYS, name), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
-                           "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=accept-new", "-p", port, user_host, "stop"],
-                          capture_output=True, text=True, timeout=60)
+    done = remote_command(name, target, "stop", 60)
     return done.returncode == 0 and done.stdout.strip() == "STOPPED"
+
+
+def fingerprint(path):
+    public = subprocess.run(["ssh-keygen", "-y", "-f", path], check=True, capture_output=True, text=True).stdout
+    return subprocess.run(["ssh-keygen", "-lf", "-", "-E", "sha256"], input=public, check=True,
+                          capture_output=True, text=True).stdout.split()[1]
+
+
+def verify():
+    result = {"fingerprints": {}, "online": [], "offline": []}
+    for name in list(load(required=True)["targets"]):
+        with action_lock(name):
+            target = load(required=True)["targets"].get(name)
+            if target is None:
+                continue
+            with open(os.path.join(KEYS, name + ".verified")) as handle:
+                verified = handle.read().strip()
+            actual = fingerprint(os.path.join(KEYS, name))
+            if not verified or actual != verified:
+                raise ValueError(f"{name}: guard volume fingerprint differs from installation verification")
+            result["fingerprints"][name] = actual
+            user_host, _, port = target["ssh"].rpartition(":")
+            try:
+                socket.create_connection((user_host.rpartition('@')[2], int(port)), timeout=2).close()
+            except OSError:
+                result["offline"].append(name)
+                continue
+            done = remote_command(name, target, "check", 15)
+            if done.returncode or done.stdout.strip() != "GUARD_CHECK:" + name:
+                raise ValueError(f"{name}: reachable target guard login failed: {(done.stderr or done.stdout)[-500:]}")
+            result["online"].append(name)
+    return result
 
 
 def tick():
@@ -122,10 +159,24 @@ def main(argv):
             time.sleep(INTERVAL_SECONDS)
     if command == "keys":
         os.makedirs(KEYS, mode=0o700, exist_ok=True)
-        for name, text in json.load(sys.stdin).items():
-            path = os.path.join(KEYS, name)
-            with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as handle:
-                handle.write(text if text.endswith("\n") else text + "\n")
+        for name, entry in json.load(sys.stdin).items():
+            with action_lock(name):
+                if "--existing-only" in argv[2:] and name not in load()["targets"]:
+                    continue
+                path = os.path.join(KEYS, name)
+                temporary = path + ".new"
+                try:
+                    with open(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as handle:
+                        text = entry["private"]
+                        handle.write(text if text.endswith("\n") else text + "\n")
+                    if fingerprint(temporary) != entry["fingerprint"]:
+                        raise ValueError(f"{name}: incoming key fingerprint differs from installation verification")
+                    os.replace(temporary, path)
+                    with open(os.open(path + ".verified", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as handle:
+                        handle.write(entry["fingerprint"])
+                finally:
+                    if os.path.exists(temporary):
+                        os.remove(temporary)
     elif command == "add":
         name, probe, ssh = argv[2:5]
 
@@ -139,10 +190,14 @@ def main(argv):
     elif command == "clear":
         with action_lock(argv[2]):
             update(lambda st: st["targets"].pop(argv[2], None))
-            try:
-                os.remove(os.path.join(KEYS, argv[2]))
-            except FileNotFoundError:
-                pass
+            for suffix in ("", ".verified"):
+                try:
+                    os.remove(os.path.join(KEYS, argv[2] + suffix))
+                except FileNotFoundError:
+                    pass
+    elif command == "verify":
+        print(json.dumps(verify()))
+        return
     elif command == "show":
         pass
     else:
