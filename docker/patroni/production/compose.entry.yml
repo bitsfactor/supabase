@@ -18,6 +18,9 @@ services:
       - /opt/patroni/tls:/tls:ro
       - pt-etcd-data:/data
     mem_limit: 512m
+    # 灾后恢复(supabase.patroni_etcd_recover)用:幸存成员单独重建投票组;平时恒为 false。
+    environment:
+      ETCD_FORCE_NEW_CLUSTER: "${ETCD_FORCE_NEW_CLUSTER:-false}"
     command:
       - etcd
       - --name=${ETCD_NAME}
@@ -28,7 +31,7 @@ services:
       - --initial-advertise-peer-urls=https://${ETCD_IP}:2380
       - --initial-cluster-token=one-patroni
       - --initial-cluster=${ETCD_INITIAL_CLUSTER}
-      - --initial-cluster-state=new
+      - --initial-cluster-state=${ETCD_INITIAL_CLUSTER_STATE:-new}
       - --cert-file=/tls/etcd.crt
       - --key-file=/tls/etcd.key
       - --trusted-ca-file=/tls/ca.crt
