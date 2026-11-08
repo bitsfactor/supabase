@@ -1,2 +1,7 @@
 out/
 legacy-init/
+tls-out/
+*.key
+*.pem
+passwords.env
+machine.env

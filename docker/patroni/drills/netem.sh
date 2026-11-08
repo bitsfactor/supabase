@@ -4,7 +4,7 @@
 source "$(dirname "$0")/lib.sh"
 site_of() { case $1 in
   pt-ny1|pt-ha-ny1|pt-etcd-ny1|pt-cli-ny-*) echo ny;; pt-mia|pt-ha-mia|pt-etcd-mia) echo mia;;
-  pt-los|pt-los2|pt-ha-los|pt-ha-los2|pt-etcd-los|pt-etcd-los2|pt-cli-la-*) echo la;; pt-etcd-x) echo x;; esac; }
+  pt-los|pt-ha-los|pt-etcd-los|pt-cli-la-*) echo la;; pt-etcd-x|pt-etcd-x2) echo x;; esac; }
 cidr_of() { case $1 in ny) echo 10.77.0.0/26;; mia) echo 10.77.0.64/26;; la) echo 10.77.0.128/26;; x) echo 10.77.0.192/26;; esac; }
 rtt() { case "$1-$2" in ny-mia|mia-ny) echo 35;; ny-la|la-ny) echo 65;; mia-la|la-mia) echo 70;; x-ny|ny-x) echo 20;; x-mia|mia-x) echo 40;; x-la|la-x) echo 45;; esac; }
 apply() {
@@ -21,4 +21,4 @@ apply() {
   else cmd="tc qdisc del dev eth0 root 2>/dev/null; true"; fi
   docker run --rm --memory 64m --cap-add NET_ADMIN --network "container:$c" pt-clients:latest sh -c "$cmd"
 }
-for c in $(docker ps --format '{{.Names}}' | grep -E '^pt-(ny1|mia|los|los2|ha-|etcd-|cli-)'); do apply "$c" "${1:-on}"; done
+for c in $(docker ps --format '{{.Names}}' | grep -E '^pt-(ny1|mia|los|ha-|etcd-|cli-)'); do apply "$c" "${1:-on}"; done

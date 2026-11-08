@@ -4,13 +4,38 @@ scope: "$PT_SCOPE"
 namespace: /one/
 name: "$PT_NAME"
 
+# REST 口:TLS + 必须出示同一 CA 签发的客户端证书(verify_client: required),写类请求(切换 / 改配置)另需口令。
+# 证书由 tls/gen-certs.sh 生成,挂在 /tls,入口脚本拷到 /etc/patroni/tls。
 restapi:
   listen: 0.0.0.0:8008
-  connect_address: "$PT_HOST:8008"
+  connect_address: "$PT_HOST:$PT_REST_PORT"
+  certfile: /etc/patroni/tls/patroni.crt
+  keyfile: /etc/patroni/tls/patroni.key
+  cafile: /etc/patroni/tls/ca.crt
+  verify_client: required
+  authentication:
+    username: patroni
+    password: "$PT_REST_PASSWORD"
 
+# patronictl 与 Patroni 成员之间互调 REST 用的客户端材料
+ctl:
+  insecure: false
+  cacert: /etc/patroni/tls/ca.crt
+  certfile: /etc/patroni/tls/patroni.crt
+  keyfile: /etc/patroni/tls/patroni.key
+  authentication:
+    username: patroni
+    password: "$PT_REST_PASSWORD"
+
+# etcd:TLS(校验服务端证书)+ 客户端证书 + 用户名口令(该用户只能读写 /one/ 前缀,见 etcd-auth.sh)
 etcd3:
   hosts: "$PT_ETCD_HOSTS"
-  protocol: http
+  protocol: https
+  cacert: /etc/patroni/tls/ca.crt
+  cert: /etc/patroni/tls/etcd-client.crt
+  key: /etc/patroni/tls/etcd-client.key
+  username: patroni
+  password: "$ETCD_PATRONI_PASSWORD"
 
 bootstrap:
   dcs:
@@ -29,7 +54,8 @@ bootstrap:
     postgresql:
       use_pg_rewind: true
       use_slots: true
-      # 下面这些是 Patroni 要求「各节点必须一致」的参数,必须等于现主库当前值(迁移时先查)。
+      # 下面这些是 Patroni 要求「各节点必须一致」的参数(从库值不得小于主库),全部取自环境变量、
+      # 没有缺省值:生产值见 production/params.env,上线前必须与现主库 SHOW 的结果核对(production/README.md)。
       # wal_level 必须保持 logical(realtime 用逻辑复制槽)。
       parameters:
         wal_level: logical
@@ -42,15 +68,15 @@ bootstrap:
         hot_standby: "on"
         max_connections: $PT_MAX_CONNECTIONS
         max_worker_processes: $PT_MAX_WORKER_PROCESSES
-        max_wal_senders: 10
-        max_replication_slots: 10
-        max_prepared_transactions: 0
-        max_locks_per_transaction: 64
+        max_wal_senders: $PT_MAX_WAL_SENDERS
+        max_replication_slots: $PT_MAX_REPLICATION_SLOTS
+        max_prepared_transactions: $PT_MAX_PREPARED_TRANSACTIONS
+        max_locks_per_transaction: $PT_MAX_LOCKS_PER_TRANSACTION
         track_commit_timestamp: "off"
 
 postgresql:
   listen: 0.0.0.0:5432
-  connect_address: "$PT_HOST:5432"
+  connect_address: "$PT_HOST:$PT_PG_PORT"
   data_dir: /var/lib/postgresql/data
   # 沿用 supabase 自带的 postgresql.conf(supautils / pg_cron / pg_net 等预加载全在里面)。
   custom_conf: /etc/postgresql/postgresql.conf
@@ -71,9 +97,9 @@ postgresql:
     - host all all ::1/128 trust
     - host replication supabase_replication_admin 127.0.0.1/32 trust
     - host replication supabase_replication_admin ::1/128 trust
-    - host replication supabase_replication_admin 10.0.0.0/8 scram-sha-256
-    - host replication supabase_replication_admin 172.16.0.0/12 scram-sha-256
-    - host replication supabase_replication_admin 192.168.0.0/16 scram-sha-256
+    # 成员跨机房、走公网地址:这里放开来源,谁能连由源站防火墙(fleet_allowlist)管,pg_hba 里不列节点 IP。
+    - host replication supabase_replication_admin 0.0.0.0/0 scram-sha-256
+    - host replication supabase_replication_admin ::/0 scram-sha-256
     - host all all 10.0.0.0/8 scram-sha-256
     - host all all 172.16.0.0/12 scram-sha-256
     - host all all 192.168.0.0/16 scram-sha-256

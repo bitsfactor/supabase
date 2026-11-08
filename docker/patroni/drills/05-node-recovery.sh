@@ -13,7 +13,7 @@ run_variant() {
   load_reset
   # 只起 node 客户端
   docker rm -f pt-cli-ny-node >/dev/null 2>&1
-  env $envs TIMELINE=1 bash -c 'source "'"$PT_DIR"'/drills/lib.sh"; docker run -d --name pt-cli-ny-node --network "$PT_NET" --ip "$(cli_ip ny-node)" --cap-add NET_ADMIN --memory 512m -e PGHOST="$(haip ny1)" -e PGPORT=5433 -e PGPASSWORD="$PT_PW" -e CLIENT_NAME=ny-node -e GID_BASE=1 -e WORKERS=2 -e INTERVAL_MS=20 -e CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-}" -e NODE_BACKOFF="${NODE_BACKOFF:-}" -e TIMELINE=1 -e NODE_OPTS="${NODE_OPTS:-}" -e NODE_PROFILE="${NODE_PROFILE:-xvideo}" pt-clients:latest sh -c "exec node /app/node/client.mjs" >/dev/null'
+  env $envs TIMELINE=1 bash -c 'source "'"$PT_DIR"'/drills/lib.sh"; docker run -d --name pt-cli-ny-node --network "$PT_NET" --ip "$(cli_ip ny-node)" --cap-add NET_ADMIN --memory 512m -e PGHOST="$(haip ny1)" -e PGPORT=5000 -e PGPASSWORD="$PT_PW" -e CLIENT_NAME=ny-node -e GID_BASE=1 -e WORKERS=2 -e INTERVAL_MS=20 -e CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-}" -e NODE_BACKOFF="${NODE_BACKOFF:-}" -e TIMELINE=1 -e NODE_OPTS="${NODE_OPTS:-}" -e NODE_PROFILE="${NODE_PROFILE:-xvideo}" pt-clients:latest sh -c "exec node /app/node/client.mjs" >/dev/null'
   bash "$PT_DIR/drills/netem.sh" on >/dev/null 2>&1
   sleep 15
   local t1 t2

@@ -10,7 +10,7 @@ mark() { echo "$(vmnow) $*" | tee -a "$OUT/01-migrate.log" >&2; }
 : > "$OUT/01-migrate.log"
 
 patroni_member_up() { # 等某成员的 Patroni REST 报告 running
-  wait_until 240 "pt-$1 Patroni running" bash -c "docker exec pt-$1 curl -s -m 2 http://localhost:8008/patroni | grep -q '\"state\": \"running\"'"
+  wait_until 240 "pt-$1 Patroni running" bash -c "docker exec pt-$1 curl -s -m 2 $CURLTLS https://localhost:8008/patroni | grep -q '\"state\": \"running\"'"
 }
 swap_to_patroni() { # swap_to_patroni <节点> —— 停旧容器(干净停机)、同一数据卷换 Patroni 容器
   local n=$1
@@ -22,14 +22,15 @@ mark "START 持续写入(三客户端 × 经库入口 → 旧主 ny1)"
 clients_start ny ny1
 # 库入口先装好(四台库机器都装,此时都指向现主 ny1);洛杉矶侧的客户端也经本机入口 —— 入口用独立端口,不碰库容器占着的端口
 if [ "${ENTRY_ALL:-1}" = 1 ]; then
-  HA_MODE=legacy HA_LEGACY=ny1=$(dbip ny1) pt_compose up -d ha-mia ha-los ha-los2 >/dev/null 2>&1
+  HA_MODE=legacy HA_LEGACY=ny1=$(dbip ny1) pt_compose up -d ha-mia ha-los >/dev/null 2>&1
   sleep 3; clients_start la los
 fi
 sleep 8
 
 mark "ETCD 起 5 个投票机"
-pt_compose up -d etcd-ny1 etcd-mia etcd-los etcd-los2 etcd-x >/dev/null 2>&1
-sleep 5
+pt_compose up -d etcd-ny1 etcd-mia etcd-los etcd-x etcd-x2 >/dev/null 2>&1
+wait_until 60 "etcd 选出 leader" docker exec pt-etcd-ny1 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/tls/ca.crt --cert=/tls/etcd.crt --key=/tls/etcd.key endpoint status
+ETCD_ROOT_PASSWORD=$ETCD_ROOT_PASSWORD ETCD_PATRONI_PASSWORD=$ETCD_PATRONI_PASSWORD "$PT_DIR/tls/etcd-auth.sh" pt-etcd-ny1 | sed 's/^/etcd 认证: /' >&2
 
 mark "SWAP mia → Patroni(备集群,跟随旧主 ny1;第一个成员,借现有数据目录建集群)"
 docker stop -t 60 pt-mia >/dev/null; docker rm pt-mia >/dev/null
@@ -37,7 +38,6 @@ PT_STANDBY_HOST=$(dbip ny1) PT_STANDBY_SLOT=us_mia_slot pt_compose up -d db-mia 
 patroni_member_up mia; mark "mia 已由 Patroni 拉起: $(ptctl mia list -f json 2>/dev/null | tr -d '\n ' | cut -c1-300)"
 
 mark "SWAP los → Patroni"; swap_to_patroni los; patroni_member_up los
-mark "SWAP los2 → Patroni"; swap_to_patroni los2; patroni_member_up los2
 sleep 12
 ptctl mia list | tee -a "$OUT/01-migrate.log" >&2
 mark "REPL 各 Patroni 从库回放进度(应全部追平 ny1)"
@@ -56,12 +56,11 @@ if [ "$STOP_FIRST" = 1 ]; then
 fi
 ptctl mia edit-config --force -s standby_cluster=null -s synchronous_mode=quorum >/dev/null 2>&1
 mark "CUT-PROMOTE 已去掉备集群(Patroni 提升中)"
-for n in $PT_NODES; do   # 四个入口都平滑重载为按 /primary 找主(不重建容器)
-  docker exec -e HA_MODE=patroni "pt-ha-$n" sh -c 'python3 /opt/ha/haproxy-render.py > /tmp/haproxy.cfg.new && mv /tmp/haproxy.cfg.new /tmp/haproxy.cfg && kill -USR2 1' 2>/dev/null || true
-done
-mark "CUT-ENTRY 库入口平滑重载为按 /primary 找主"
+# 入口模式由容器自己的环境决定:重建三个入口容器为 patroni 模式(不做热重载),重建期间经它的连接会断,客户端重连
+HA_MODE=patroni pt_compose up -d --force-recreate ha-ny1 ha-mia ha-los >/dev/null 2>&1
+mark "CUT-ENTRY 库入口重建为 patroni 模式(按 /primary 找主)"
 wait_until 90 "mia 成为主" bash -c "[ \"$(leader mia)\" = mia ]" || true
-wait_until 90 "mia 成为主" bash -c "docker exec pt-mia curl -s -m 2 -o /dev/null -w '%{http_code}' http://localhost:8008/primary | grep -q 200"
+wait_until 90 "mia 成为主" bash -c "docker exec pt-mia curl -s -m 2 $CURLTLS -o /dev/null -w '%{http_code}' https://localhost:8008/primary | grep -q 200"
 mark "CUT-PRIMARY mia 已是主(/primary=200)"
 if [ "$STOP_FIRST" != 1 ]; then docker stop -t 60 pt-ny1 >/dev/null; mark "CUT-NY1-STOPPED(提升之后才停)"; fi
 
@@ -76,7 +75,7 @@ sleep 10
 
 mark "SWITCHBACK 计划内切回 ny1"
 ptctl mia switchover --leader mia --candidate ny1 --force 2>&1 | tail -3 | tee -a "$OUT/01-migrate.log" >&2
-wait_until 60 "ny1 成为主" bash -c "docker exec pt-ny1 curl -s -m 2 -o /dev/null -w '%{http_code}' http://localhost:8008/primary | grep -q 200"
+wait_until 60 "ny1 成为主" bash -c "docker exec pt-ny1 curl -s -m 2 $CURLTLS -o /dev/null -w '%{http_code}' https://localhost:8008/primary | grep -q 200"
 mark "SWITCHBACK-DONE ny1 已是主"
 sleep 15
 
@@ -87,3 +86,7 @@ ptctl ny1 list | tee -a "$OUT/01-migrate.log" >&2
 cli_summary_table "$OUT/01-summary.jsonl" | tee -a "$OUT/01-migrate.log"
 sleep 3
 cli_verify "$OUT/01-summary.jsonl" | tee -a "$OUT/01-migrate.log"
+
+# 旧主 ny1 回来时有没有走倒回(pg_rewind):STOP_FIRST=0 的一轮看这里
+mark "NY1-REWIND-CHECK $(docker logs pt-ny1 2>&1 | grep -ciE 'pg_rewind|rewind' ) 行含 rewind;摘要:"
+docker logs pt-ny1 2>&1 | grep -iE 'rewind|diverge|timeline' | head -8 | tee -a "$OUT/01-migrate.log" >&2
