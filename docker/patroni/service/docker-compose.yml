@@ -81,6 +81,7 @@ services:
       PT_STANDBY_PORT: ${PT_STANDBY_PORT:-5433}      # 直连库端口(5432 是连接池)
       PT_ETCD_USER: ${PT_ETCD_USER:-}
       PT_ETCD_PASSWORD: ${PT_ETCD_PASSWORD:-}
+      PT_PGSODIUM_ROOT_KEY: ${PT_PGSODIUM_ROOT_KEY:-}      # 来自密钥库,启动前放进 db-config 卷(pgsodium-key.sh)
       PT_STANDBY_SLOT: ${PT_STANDBY_SLOT:-}
       PT_NOSYNC: ${PT_NOSYNC:-false}
       PT_SYNC: ${PT_SYNC:-}      # 空 = 生产缺省 quorum(任一从库确认才算提交);迁移期(有 PT_STANDBY_HOST)自动为 false

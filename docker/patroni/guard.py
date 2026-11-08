@@ -9,7 +9,7 @@
   guard.py run                      常驻循环
   guard.py keys                     标准输入读 {"目标名": "私钥文本"},写进 /guard/keys
   guard.py add NAME 探测host:端口[,host:端口…] 用户@ssh主机:端口   登记一个目标(已登记的保留其状态,可重复执行)
-  guard.py clear NAME               撤销盯守(重新加入时):删掉登记和这台的私钥,打印被撤销的登记
+  guard.py clear NAME               撤销盯守(重新加入时):锁内标记撤销、等在途的停机做完、删私钥,打印被撤销的登记和 inflight_done
   guard.py show                     打印状态
 """
 import fcntl
@@ -64,12 +64,18 @@ def reachable(probe):
     return False
 
 
+def parse_stop(stdout):
+    """强制命令的输出 `STOPPED FENCED|FENCE_INCOMPLETE` → (停成功?, 围栏标记写成并核实了?)."""
+    stopped = "STOPPED" in stdout
+    return stopped, stopped and "FENCED" in stdout.split() and "FENCE_INCOMPLETE" not in stdout
+
+
 def stop_remote(name, target):
     user_host, _, port = target["ssh"].rpartition(":")
     done = subprocess.run(["ssh", "-i", os.path.join(KEYS, name), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
                            "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=accept-new", "-p", port, user_host, "stop"],
                           capture_output=True, text=True, timeout=60)
-    return "STOPPED" in done.stdout
+    return parse_stop(done.stdout)
 
 
 def tick():
@@ -80,18 +86,54 @@ def tick():
         if now - target.get("last_action", 0) < REPEAT_SECONDS:
             update(lambda st: st["targets"].get(name) and st["targets"][name].update(last_reachable=now))
             continue
+        begun = {}
+
+        def begin(state):
+            if name in state["targets"]:         # 目标还在才开始;之后撤销会等这一次做完(inflight)
+                state.setdefault("inflight", {})[name] = now
+                begun["ok"] = True
+        update(begin)
+        if not begun.get("ok"):
+            continue
         try:
-            ok = stop_remote(name, target)       # 慢操作不拿锁
+            ok, fenced = stop_remote(name, target)       # 慢操作不拿锁
         except (OSError, subprocess.SubprocessError):
-            ok = False
+            ok, fenced = False, False
 
         def record(state):
+            state.setdefault("inflight", {}).pop(name, None)
             current = state["targets"].get(name)
             if current is None:                  # 这期间被撤销了:别把它写回来
                 return
             current.update(last_reachable=now, last_action=now, stopped=ok or current.get("stopped", False),
                            stopped_at=now if ok else current.get("stopped_at"), attempts=current.get("attempts", 0) + 1)
+            if ok:                               # 停了但围栏标记没写成 = fence_incomplete,保持停机并如实上报
+                current["fence_incomplete"] = not fenced
         update(record)
+
+
+def cancel(name, wait_seconds=90):
+    """撤销一个目标:先在锁里标记撤销(此后不再有新的停机),再等正在进行的停机做完,才返回;私钥一并删掉."""
+    removed = {}
+
+    def drop(state):
+        removed["entry"] = state["targets"].pop(name, None)
+    update(drop)
+    deadline = time.time() + wait_seconds
+    done = False
+    while time.time() < deadline:
+        started = load().get("inflight", {}).get(name)
+        if started is None or time.time() - started > 2 * wait_seconds:      # 过期的在途记录不能永远卡住撤销
+            done = True
+            break
+        time.sleep(0.2)
+    if done:
+        update(lambda st: st.get("inflight", {}).pop(name, None))
+    try:
+        os.remove(os.path.join(KEYS, name))
+    except OSError:
+        pass
+    return {"removed": removed["entry"], "targets": load()["targets"], "inflight_done": done, "inflight": load().get("inflight", {})}
 
 
 def main(argv):
@@ -115,16 +157,7 @@ def main(argv):
                                       "stopped": previous.get("stopped", False)}
         update(add)
     elif command == "clear":
-        removed = {}
-
-        def clear(state):
-            removed["entry"] = state["targets"].pop(argv[2], None)
-        state = update(clear)
-        try:
-            os.remove(os.path.join(KEYS, argv[2]))
-        except OSError:
-            pass
-        print(json.dumps({"removed": removed["entry"], "targets": state["targets"]}))
+        print(json.dumps(cancel(argv[2])))
         return
     elif command == "show":
         pass

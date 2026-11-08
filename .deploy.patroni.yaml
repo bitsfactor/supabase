@@ -114,6 +114,9 @@ config_schema:
 secrets:
   - env: PT_SUPERUSER_PASSWORD
     from: system_config:supabase_postgres.password
+  # pgsodium 根密钥:每个成员(新机器也一样)启动前都从密钥库放进 db-config 卷;物理复制不带它(迁移清单第 1 步先从现主库取出存好)
+  - env: PT_PGSODIUM_ROOT_KEY
+    from: system_config:supabase_postgres.pgsodium_root_key
 
 exposed_ports:
   - 5000

@@ -24,6 +24,7 @@ if [ -f "${PGDATA:-/var/lib/postgresql/data}/PG_VERSION" ] && [ -z "${PT_STANDBY
     exit 78
   fi
 fi
+/opt/patroni/pgsodium-key.sh
 python3 /opt/patroni/render.py /opt/patroni/patroni.yml > /etc/patroni/patroni.yml
 chown postgres:postgres /etc/patroni/patroni.yml
 chmod 600 /etc/patroni/patroni.yml
