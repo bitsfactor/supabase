@@ -91,8 +91,8 @@ services:
     mem_limit: 256m
     environment:
       ENTRY_PORT: "5000"
-      HA_MODE: patroni
-      HA_NODES: ${HA_NODES}
+      PT_SCOPE: ${PT_SCOPE:-supabase-main}
+      PT_ETCD_HOSTS: ${PT_ETCD_HOSTS}      # 非投票机也要能读 etcd(confd 盯成员表)
   guard:
     profiles: [guard]
     image: one-patroni-haproxy:2.8

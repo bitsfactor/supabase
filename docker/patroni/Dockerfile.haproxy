@@ -1,9 +1,11 @@
-# 库入口:每台库机器一个。只把连接转给 Patroni 说「我是主」的那台,换主时掐断旧连接。
+# 库入口:每台库机器一个。只把连接转给 Patroni 说「我是主」的那台,换主时掐断旧连接;后端表由 confd 从 etcd 里 Patroni 的成员表渲染。
 ARG HAPROXY_TAG=2.8-alpine
 FROM haproxy:${HAPROXY_TAG}
 USER root
-RUN apk add --no-cache python3 iptables openssh-client
-COPY haproxy-render.py haproxy.cfg.tpl /opt/ha/
+RUN apk add --no-cache python3 iptables openssh-client wget \
+ && wget -q -O /usr/local/bin/confd https://github.com/kelseyhightower/confd/releases/download/v0.16.0/confd-0.16.0-linux-amd64 \
+ && chmod +x /usr/local/bin/confd
+COPY confd /etc/confd
 COPY ha-entrypoint.sh tls-init.sh guard.py /opt/ha/
 RUN chmod +x /opt/ha/ha-entrypoint.sh /opt/ha/tls-init.sh
 ENTRYPOINT ["/opt/ha/ha-entrypoint.sh"]

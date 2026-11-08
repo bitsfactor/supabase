@@ -32,11 +32,6 @@ config_schema:
     type: text
     required: true
     help: etcd-us-ny1=https://IP:2380,etcd-us-mia=https://IP:2380,etcd-us-los=https://IP:2380
-  - key: HA_NODES
-    label: 库入口后端表
-    type: text
-    required: true
-    help: 名字=IP:5433:8008,逗号分隔(每台库机器一项;新加库机器后在这里加一项再重部署入口)
   - key: PT_REST_PASSWORD
     label: Patroni REST 写口令
     type: password
