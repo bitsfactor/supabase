@@ -18,9 +18,6 @@ services:
       - /opt/patroni/tls:/tls:ro
       - pt-etcd-data:/data
     mem_limit: 512m
-    # 灾后恢复(supabase.patroni_etcd_recover)用:幸存成员单独重建投票组;平时恒为 false。
-    environment:
-      ETCD_FORCE_NEW_CLUSTER: "${ETCD_FORCE_NEW_CLUSTER:-false}"
     command:
       - etcd
       - --name=${ETCD_NAME}
