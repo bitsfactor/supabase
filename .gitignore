@@ -166,3 +166,5 @@ keys.json
 examples/**/package-lock.json
 examples/**/yarn.lock
 examples/**/pnpm-lock.yaml
+# 本地后端检查工具环境
+.venv/

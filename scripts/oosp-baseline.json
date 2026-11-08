@@ -1,0 +1,170 @@
+[
+  {
+    "path": "docker/patroni/clients/py/cancel.py",
+    "rule": "clock-random",
+    "source": "print(\"RESULT py-%s: 成功返回(%dms)\" % (mode, 1000 * (time.time() - t0)), flush=True)",
+    "count": 1,
+    "reason": "现有进程外壳及演练客户端使用时钟；本轮仅接入门禁，不改运行行为。"
+  },
+  {
+    "path": "docker/patroni/clients/py/cancel.py",
+    "rule": "clock-random",
+    "source": "print(\"RESULT py-%s: 报错 %s %s(%dms)\" % (mode, type(e).__name__, str(e)[:60].replace(\"\\n\", \" \"), 1000 * (time.time() - t0)), flush=True)",
+    "count": 1,
+    "reason": "现有进程外壳及演练客户端使用时钟；本轮仅接入门禁，不改运行行为。"
+  },
+  {
+    "path": "docker/patroni/clients/py/cancel.py",
+    "rule": "clock-random",
+    "source": "t0 = time.time()",
+    "count": 1,
+    "reason": "现有进程外壳及演练客户端使用时钟；本轮仅接入门禁，不改运行行为。"
+  },
+  {
+    "path": "docker/patroni/clients/py/client.py",
+    "rule": "clock-random",
+    "source": "deadline = time.time() + 15",
+    "count": 1,
+    "reason": "现有进程外壳及演练客户端使用时钟；本轮仅接入门禁，不改运行行为。"
+  },
+  {
+    "path": "docker/patroni/clients/py/client.py",
+    "rule": "clock-random",
+    "source": "st[\"maxgap\"] = max(st[\"maxgap\"], 0 if st[\"last\"] is None else time.time() - st[\"last\"])",
+    "count": 1,
+    "reason": "现有进程外壳及演练客户端使用时钟；本轮仅接入门禁，不改运行行为。"
+  },
+  {
+    "path": "docker/patroni/clients/py/client.py",
+    "rule": "clock-random",
+    "source": "t.join(max(0, deadline - time.time()))",
+    "count": 1,
+    "reason": "现有进程外壳及演练客户端使用时钟；本轮仅接入门禁，不改运行行为。"
+  },
+  {
+    "path": "docker/patroni/clients/py/client.py",
+    "rule": "clock-random",
+    "source": "t0 = time.time()",
+    "count": 1,
+    "reason": "现有进程外壳及演练客户端使用时钟；本轮仅接入门禁，不改运行行为。"
+  },
+  {
+    "path": "docker/patroni/clients/py/client.py",
+    "rule": "clock-random",
+    "source": "t1 = time.time()",
+    "count": 1,
+    "reason": "现有进程外壳及演练客户端使用时钟；本轮仅接入门禁，不改运行行为。"
+  },
+  {
+    "path": "docker/patroni/clients/py/client.py",
+    "rule": "unit",
+    "source": "interval = int(E.get(\"INTERVAL_MS\", \"20\")) / 1000",
+    "count": 1,
+    "reason": "存量脚本命名；本轮冻结具体行。"
+  },
+  {
+    "path": "docker/patroni/clients/py/verify.py",
+    "rule": "abbreviation",
+    "source": "print(json.dumps(res, indent=1))",
+    "count": 1,
+    "reason": "存量脚本命名；本轮冻结具体行，新增代码须使用完整命名。"
+  },
+  {
+    "path": "docker/patroni/clients/py/verify.py",
+    "rule": "abbreviation",
+    "source": "res = {}",
+    "count": 1,
+    "reason": "存量脚本命名；本轮冻结具体行，新增代码须使用完整命名。"
+  },
+  {
+    "path": "docker/patroni/clients/py/verify.py",
+    "rule": "abbreviation",
+    "source": "res[ip] = {\"error\": str(e)[:80]}",
+    "count": 1,
+    "reason": "存量脚本命名；本轮冻结具体行，新增代码须使用完整命名。"
+  },
+  {
+    "path": "docker/patroni/clients/py/verify.py",
+    "rule": "abbreviation",
+    "source": "res[ip] = {\"rows\": len(seqs), \"md5\": hashlib.md5(\",\".join(map(str, seqs)).encode()).hexdigest()[:12],",
+    "count": 1,
+    "reason": "存量脚本命名；本轮冻结具体行，新增代码须使用完整命名。"
+  },
+  {
+    "path": "docker/patroni/guard.py",
+    "rule": "abbreviation",
+    "source": "os.replace(tmp, STATE)",
+    "count": 1,
+    "reason": "存量脚本命名；本轮冻结具体行，新增代码须使用完整命名。"
+  },
+  {
+    "path": "docker/patroni/guard.py",
+    "rule": "abbreviation",
+    "source": "tmp = STATE + \".tmp\"",
+    "count": 1,
+    "reason": "存量脚本命名；本轮冻结具体行，新增代码须使用完整命名。"
+  },
+  {
+    "path": "docker/patroni/guard.py",
+    "rule": "abbreviation",
+    "source": "with open(tmp, \"w\") as handle:",
+    "count": 1,
+    "reason": "存量脚本命名；本轮冻结具体行，新增代码须使用完整命名。"
+  },
+  {
+    "path": "docker/patroni/guard.py",
+    "rule": "clock-random",
+    "source": "now = time.time()",
+    "count": 1,
+    "reason": "现有进程外壳及演练客户端使用时钟；本轮仅接入门禁，不改运行行为。"
+  },
+  {
+    "path": "docker/patroni/guard.py",
+    "rule": "clock-random",
+    "source": "state[\"targets\"][name] = {**previous, \"probe\": probe, \"ssh\": ssh, \"added_at\": previous.get(\"added_at\", time.time()),",
+    "count": 1,
+    "reason": "现有进程外壳及演练客户端使用时钟；本轮仅接入门禁，不改运行行为。"
+  },
+  {
+    "path": "docker/patroni/guard.py",
+    "rule": "empty-except",
+    "source": "except FileNotFoundError:",
+    "count": 1,
+    "reason": "现有删除不存在文件的幂等处理；本轮不改运行行为。"
+  },
+  {
+    "path": "docker/patroni/ha-entrypoint.sh",
+    "rule": "SC2086",
+    "source": "confd -backend etcdv3 -watch -confdir /etc/confd -prefix \"/one/$PT_SCOPE\" $NODES -scheme https \\",
+    "count": 1,
+    "reason": "现有 confd 命令刻意展开多个 -node 参数；仅冻结该行。"
+  },
+  {
+    "path": "docker/patroni/render.py",
+    "rule": "abbreviation",
+    "source": "cfg = yaml.safe_load(text)",
+    "count": 1,
+    "reason": "存量脚本命名；本轮冻结具体行，新增代码须使用完整命名。"
+  },
+  {
+    "path": "docker/patroni/render.py",
+    "rule": "abbreviation",
+    "source": "cfg[\"bootstrap\"][\"dcs\"][\"standby_cluster\"] = block",
+    "count": 1,
+    "reason": "存量脚本命名；本轮冻结具体行，新增代码须使用完整命名。"
+  },
+  {
+    "path": "docker/patroni/render.py",
+    "rule": "abbreviation",
+    "source": "yaml.safe_dump(cfg, sys.stdout, default_flow_style=False)",
+    "count": 1,
+    "reason": "存量脚本命名；本轮冻结具体行，新增代码须使用完整命名。"
+  },
+  {
+    "path": "docker/patroni/tls-init.sh",
+    "rule": "SC2012",
+    "source": "echo \"tls ready: $(ls /tls | tr '\\n' ' ')\"",
+    "count": 1,
+    "reason": "现有证书目录日志；仅冻结该行。"
+  }
+]

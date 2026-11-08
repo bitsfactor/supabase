@@ -1,0 +1,98 @@
+"""Patroni 离线安全契约；运行：python3 -m unittest discover -s scripts/tests。"""
+import importlib.util
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[2]
+PATRONI = ROOT / 'docker/patroni'
+
+
+def load_module(name, path):
+    specification = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    return module
+
+
+class PatroniTests(unittest.TestCase):
+    def test_render(self):
+        environment = {
+            'PT_NAME': 'fixture', 'PT_HOST': '192.0.2.1',
+            'PT_PG_PORT': '5433', 'PT_REST_PORT': '8008',
+            'PT_ETCD_HOSTS': '192.0.2.2:2379',
+            'PT_REST_PASSWORD': 'fixture', 'PT_SUPERUSER_PASSWORD': 'fixture',
+            'PT_REPL_PASSWORD': 'fixture', 'PT_MAX_CONNECTIONS': '100',
+            'PT_MAX_WAL_SENDERS': '10', 'PT_MAX_REPLICATION_SLOTS': '10',
+            'PT_MAX_WORKER_PROCESSES': '8', 'PT_MAX_LOCKS_PER_TRANSACTION': '64',
+            'PT_MAX_PREPARED_TRANSACTIONS': '0',
+        }
+        for extra, expected in [({}, 'quorum'), ({'PT_STANDBY_HOST': '192.0.2.3'}, False),
+                                ({'PT_SYNC': 'false'}, False)]:
+            with self.subTest(extra=extra):
+                result = subprocess.run([sys.executable, str(PATRONI / 'render.py'),
+                                         str(PATRONI / 'patroni.yml')], env={**environment, **extra},
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                configuration = yaml.safe_load(result.stdout)
+                self.assertEqual(configuration['bootstrap']['dcs']['synchronous_mode'], expected)
+                self.assertEqual(configuration['restapi']['verify_client'], 'required')
+                self.assertEqual(configuration['bootstrap']['dcs']['postgresql']['parameters']['wal_level'], 'logical')
+                if extra.get('PT_STANDBY_HOST'):
+                    self.assertEqual(configuration['bootstrap']['dcs']['standby_cluster'],
+                                     {'host': '192.0.2.3', 'port': 5433})
+        result = subprocess.run([sys.executable, str(PATRONI / 'render.py'),
+                                 str(PATRONI / 'patroni.yml')], env={}, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('is required', result.stderr)
+
+    def test_key_install_refuses_missing_invalid_and_overwrite(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'root.key'
+            environment = {'PATH': os.defpath, 'PGSODIUM_KEY_FILE': str(path), 'PGSODIUM_SKIP_CHOWN': '1'}
+            def run(key):
+                return subprocess.run(['bash', str(PATRONI / 'pgsodium-key.sh')],
+                                      env={**environment, 'PT_PGSODIUM_ROOT_KEY': key},
+                                      capture_output=True, text=True)
+            self.assertEqual(run('').returncode, 79)
+            self.assertEqual(run('invalid').returncode, 79)
+            self.assertFalse(path.exists())
+            self.assertEqual(run('a' * 64).returncode, 0)
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(run('a' * 64).returncode, 0)
+            self.assertEqual(run('').returncode, 0)
+            self.assertEqual(run('b' * 64).returncode, 79)
+            self.assertEqual(path.read_text(), 'a' * 64)
+
+    def test_guard_state_and_failed_stop(self):
+        guard = load_module('patroni_guard', PATRONI / 'guard.py')
+        with tempfile.TemporaryDirectory() as directory, patch.object(guard, 'STATE', str(Path(directory) / 'state.json')), \
+                patch.object(guard, 'LOCK', str(Path(directory) / 'state.lock')):
+            self.assertEqual(guard.load(), {'targets': {}})
+            with self.assertRaises(FileNotFoundError):
+                guard.load(required=True)
+            guard.update(lambda state: state['targets'].update(fixture={'probe': 'fixture', 'ssh': 'fixture'}))
+            with patch.object(guard, 'reachable', return_value=False), patch.object(guard, 'stop_remote') as stop:
+                guard.tick()
+                stop.assert_not_called()
+            with patch.object(guard, 'reachable', return_value=True), \
+                    patch.object(guard.time, 'time', return_value=100), \
+                    patch.object(guard, 'stop_remote', side_effect=OSError('fixture')):
+                guard.tick()
+            target = guard.load()['targets']['fixture']
+            self.assertFalse(target['stopped'])
+            self.assertEqual(target['attempts'], 1)
+            with patch.object(guard, 'reachable', return_value=True), \
+                    patch.object(guard.time, 'time', return_value=101), patch.object(guard, 'stop_remote') as stop:
+                guard.tick()
+                stop.assert_not_called()
+            Path(guard.STATE).write_text(json.dumps({'targets': []}))
+            with self.assertRaises(ValueError):
+                guard.load()

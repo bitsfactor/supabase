@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# 在 one 子仓内保留共享检查；独立克隆时使用本仓门禁。
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+superproject=$(git rev-parse --show-superproject-working-tree)
+if [[ -n "$superproject" && -f "$superproject/scripts/frontend-precommit.sh" ]]; then
+  exec bash "$superproject/scripts/frontend-precommit.sh"
+fi
+exec scripts/oosp-lint.sh --staged
