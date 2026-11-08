@@ -1,0 +1,25 @@
+# 测试环境专用(us-los2 上一台宿主模拟多台「机器」,容器全部 pt- 前缀):叠在 ../compose.entry.yml 上。
+# 只改名字 / 网络 / 挂载,不发布宿主端口(宿主上有生产服务);其余与生产定义完全一致。
+# 变量:SBX_M(机器名)、SBX_ROOT(该机根目录)、SBX_HA_IP(库入口地址);ETCD_IP 来自该机证书包里的 machine.env。
+services:
+  etcd:
+    container_name: pt-etcd-${SBX_M}
+    ports: !reset []
+    volumes: !override
+      - ${SBX_ROOT}/patroni/tls:/tls:ro
+      - pt-etcd-data:/data
+    networks:
+      sbx:
+        ipv4_address: ${ETCD_IP}
+  ha:
+    container_name: pt-ha-${SBX_M}
+    ports: !reset []
+    volumes: !override
+      - ${SBX_ROOT}/patroni/tls:/tls:ro
+    networks:
+      sbx:
+        ipv4_address: ${SBX_HA_IP}
+networks:
+  sbx:
+    external: true
+    name: patroni-test

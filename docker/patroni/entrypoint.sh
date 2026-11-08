@@ -16,4 +16,7 @@ for f in /tls/*; do install -o postgres -g postgres -m 0600 "$f" "/etc/patroni/t
 python3 /opt/patroni/render.py /opt/patroni/patroni.yml > /etc/patroni/patroni.yml
 chown postgres:postgres /etc/patroni/patroni.yml
 chmod 600 /etc/patroni/patroni.yml
+# 底座 compose 的 db 服务带 PGPASSWORD(超级用户口令,给 docker exec psql 用);libpq 的环境变量优先于 pgpass 文件,
+# 会让 walreceiver 拿它去连上游的复制账号而认证失败。只在 Patroni 进程树里去掉,docker exec 看到的容器环境不变。
+unset PGPASSWORD
 exec gosu postgres patroni /etc/patroni/patroni.yml

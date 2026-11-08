@@ -10,6 +10,7 @@
 | `../tls/etcd-auth.sh` | 投票组建好后跑一次:建 root / patroni 用户,patroni 只能读写 `/one/`,开启认证 |
 | `params.env` | 「各节点必须一致」的参数与端口(max_connections=2000 等),上线前与现主库核对;随部署复制到 `/opt/patroni/params.env` |
 | `compose.entry.yml` | 投票组成员(profile `etcd`)+ 库入口(profile `entry`),部署在 `/opt/patroni`,不碰现有库容器 |
+| `sandbox/` | 测试专用覆盖(us-los2 上一台宿主模拟三台「机器」,只用 pt- 容器 / 卷,不发布宿主端口):`entry.override.yml`、`db.base.yml`(生产 `db` 服务的替身)、`db.override.yml`;生产布局不使用 |
 | `compose.db.yml` | 叠在 supabase 自己的 compose 上,把 `db` 换成 Patroni 镜像(服务名 / 容器名 / 数据目录 / db-config 卷 / shm 16gb / 5433 与原来完全一致,多发布 8008) |
 
 ## 安全做法(都已在测试集群实测)
@@ -38,3 +39,6 @@ select name, setting from pg_settings where name in ('max_connections','max_wal_
 - `HA_MODE=static HA_STATIC=ny1=<现主IP>:5433`:Patroni 装好之前,固定转给现主库,TCP 探活,下线时掐断会话。
 - `HA_MODE=patroni HA_NODES=ny1=<IP>:5433:8008,mia=…,los=…`:按 `/primary` 找主。
 服务连接串统一 `pg.develop.cc:5000?target_session_attrs=primary`(postgres.js 只认 `primary`)。
+
+## 自动化
+上面每一步都有对应的 one 能力(`supabase.patroni_*`,实现见 one 仓 `src/one/business/supabase_patroni_business.py`):投票组是标准三成员 etcd,跟三台库机器同机(每台一个);证书包存在平台密钥库的 `PATRONI_BUNDLE_<机器名大写>` 里,机器名 = 节点名(`gen-certs.sh` 的 `ETCD_MEMBERS` / `DB_MEMBERS` 都用节点名),由能力经 SSH 标准输入下发。`gen-certs.sh` 生成的 machine.env 带复制账号口令 `PT_REPL_PASSWORD`,由 `supabase.patroni_prepare_primary` 设到现主库上。

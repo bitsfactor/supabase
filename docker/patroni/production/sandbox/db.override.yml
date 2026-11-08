@@ -1,0 +1,15 @@
+# 测试环境专用:叠在 ../compose.db.yml 之后。不发布宿主端口,证书 / 环境文件指向该机目录,
+# 用 PT_TEST_PG_REDIRECT 模拟「宿主 5433 → 容器 5432」(生产由 docker 的 ports 做)。
+services:
+  db:
+    ports: !reset []
+    cap_add: [NET_ADMIN]
+    volumes: !override
+      - data:/var/lib/postgresql/data
+      - cfg:/etc/postgresql-custom
+      - ${SBX_ROOT}/patroni/tls:/tls:ro
+    env_file: !override
+      - ${SBX_ROOT}/patroni/machine.env
+      - ${SBX_ROOT}/patroni/params.env
+    environment:
+      PT_TEST_PG_REDIRECT: "5433"

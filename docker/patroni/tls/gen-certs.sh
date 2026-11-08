@@ -36,8 +36,11 @@ fi
     echo "ETCD_ROOT_PASSWORD=$(openssl rand -hex 16)"
     echo "ETCD_PATRONI_PASSWORD=$(openssl rand -hex 16)"
     echo "PT_REST_PASSWORD=$(openssl rand -hex 16)"
+    echo "PT_REPL_PASSWORD=$(openssl rand -hex 16)"
   } > passwords.env
 }
+# 早先生成的 passwords.env 没有复制口令:补一条(只补不改)
+grep -q '^PT_REPL_PASSWORD=' passwords.env || echo "PT_REPL_PASSWORD=$(openssl rand -hex 16)" >> passwords.env
 
 # leaf <目标目录> <文件名前缀> <CN> <IP> <附加名,逗号分隔>
 leaf() {
@@ -83,11 +86,11 @@ for name in $names; do
     leaf "$d/tls" patroni "patroni-$name" "$ip" "$extra"
     leaf "$d/tls" etcd-client "-" "$ip" ""        # Patroni → etcd 的客户端证书(无 CN)
     cat "$d/tls/patroni.crt" "$d/tls/patroni.key" > "$d/tls/patroni.pem"
-    pw ETCD_PATRONI_PASSWORD; pw PT_REST_PASSWORD
+    pw ETCD_PATRONI_PASSWORD; pw PT_REST_PASSWORD; pw PT_REPL_PASSWORD
     { echo "PT_NAME=$name"; echo "PT_HOST=$ip"; echo "PT_ETCD_HOSTS=$etcd_hosts"; echo "HA_NODES=$ha_nodes"; } >> "$d/machine.env"
   done
   chmod 600 "$d"/tls/*.key "$d"/tls/*.pem "$d/machine.env" 2>/dev/null || true
   chmod 644 "$d"/tls/*.crt
-  tar -C "$d" -czf "machines/$name.tar.gz" tls machine.env
+  COPYFILE_DISABLE=1 tar -C "$d" -czf "machines/$name.tar.gz" tls machine.env   # macOS 的 tar 会塞 ._ 元数据文件,关掉
 done
 echo "OK:$(echo $names | tr ' ' ',')  → $OUT/machines/<名>.tar.gz(CA 私钥 $OUT/ca.key 不在任何包里)"
