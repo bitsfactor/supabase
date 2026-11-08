@@ -28,12 +28,17 @@ INTERVAL_SECONDS = 2
 REPEAT_SECONDS = 10
 
 
-def load():
+def load(required=False):
     try:
         with open(STATE) as handle:
-            return json.load(handle)
-    except (OSError, ValueError):
+            state = json.load(handle)
+    except FileNotFoundError:
+        if required:
+            raise
         return {"targets": {}}
+    if not isinstance(state, dict) or not isinstance(state.get("targets"), dict):
+        raise ValueError("guard state must contain a targets object")
+    return state
 
 
 def save(state):
@@ -142,7 +147,7 @@ def main(argv):
         pass
     else:
         sys.exit(f"unknown command {command}")
-    print(json.dumps(load()))
+    print(json.dumps(load(required=command == "show" and "--required" in argv[2:])))
 
 
 if __name__ == "__main__":
