@@ -1,0 +1,10 @@
+# 仅测试:「旧架构」库容器 = 生产同版本镜像 + 仓库里 volumes/db 的初始化脚本(与 compose 的挂载路径一一对应)。
+# 先由 drills/build.sh 把 ../volumes/db/*.sql 复制进 legacy-init/。
+FROM supabase/postgres:15.8.1.085
+COPY legacy-init/realtime.sql /docker-entrypoint-initdb.d/migrations/99-realtime.sql
+COPY legacy-init/webhooks.sql /docker-entrypoint-initdb.d/init-scripts/98-webhooks.sql
+COPY legacy-init/roles.sql /docker-entrypoint-initdb.d/init-scripts/99-roles.sql
+COPY legacy-init/jwt.sql /docker-entrypoint-initdb.d/init-scripts/99-jwt.sql
+COPY legacy-init/_supabase.sql /docker-entrypoint-initdb.d/migrations/97-_supabase.sql
+COPY legacy-init/logs.sql /docker-entrypoint-initdb.d/migrations/99-logs.sql
+COPY legacy-init/pooler.sql /docker-entrypoint-initdb.d/migrations/99-pooler.sql

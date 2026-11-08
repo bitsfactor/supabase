@@ -1,0 +1,17 @@
+# 三种客户端:Node postgres.js(与 xvideo 同版本)、Go pgx、Python psycopg,持续写库并输出统计。
+FROM golang:1.23 AS gobuild
+WORKDIR /src
+COPY clients/go/ .
+RUN go mod tidy && CGO_ENABLED=0 go build -o /out/pgx-client .
+
+FROM python:3.12-slim-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends iptables iproute2 && rm -rf /var/lib/apt/lists/*
+COPY --from=node:20-slim /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:20-slim /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
+WORKDIR /app
+COPY clients/node/package.json clients/node/client.mjs /app/node/
+RUN cd /app/node && npm install --omit=dev --no-audit --no-fund
+RUN pip install --no-cache-dir "psycopg[binary,pool]"
+COPY clients/py/ /app/py/
+COPY --from=gobuild /out/pgx-client /usr/local/bin/pgx-client

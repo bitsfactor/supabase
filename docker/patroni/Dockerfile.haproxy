@@ -1,0 +1,9 @@
+# 库入口:每台库机器一个。只把连接转给 Patroni 说「我是主」的那台,换主时掐断旧连接。
+ARG HAPROXY_TAG=2.8-alpine
+FROM haproxy:${HAPROXY_TAG}
+USER root
+RUN apk add --no-cache python3 iptables
+COPY haproxy-render.py haproxy.cfg.tpl /opt/ha/
+COPY ha-entrypoint.sh /opt/ha/
+RUN chmod +x /opt/ha/ha-entrypoint.sh
+ENTRYPOINT ["/opt/ha/ha-entrypoint.sh"]

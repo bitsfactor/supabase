@@ -1,0 +1,96 @@
+# Patroni 配置模板(美元符占位由 render.py 用环境变量替换)。
+# 租约 30 秒、每 10 秒续一次;wal_log_hints 开(pg_rewind 需要);同步提交;回调只写日志。
+scope: "$PT_SCOPE"
+namespace: /one/
+name: "$PT_NAME"
+
+restapi:
+  listen: 0.0.0.0:8008
+  connect_address: "$PT_HOST:8008"
+
+etcd3:
+  hosts: "$PT_ETCD_HOSTS"
+  protocol: http
+
+bootstrap:
+  dcs:
+    ttl: 30
+    loop_wait: 10
+    retry_timeout: 10
+    maximum_lag_on_failover: 1048576
+    # 同步提交:迁移期(备集群)为 false,切主后用 patronictl edit-config 改成 quorum(任一候选确认即可)。
+    synchronous_mode: $PT_SYNC
+    synchronous_node_count: 1
+    # 投票组整体不可用时保持现主;租约 30 秒 / 每 10 秒续一次。
+    failsafe_mode: true
+    # 复制槽:Patroni 只管自己建的;realtime 的逻辑槽(cainophile_*)配成忽略。
+    ignore_slots:
+      - type: logical
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+      # 下面这些是 Patroni 要求「各节点必须一致」的参数,必须等于现主库当前值(迁移时先查)。
+      # wal_level 必须保持 logical(realtime 用逻辑复制槽)。
+      parameters:
+        wal_level: logical
+        # 原 compose 的启动参数(realtime 轮询查询不进日志)
+        log_min_messages: fatal
+        wal_log_hints: "on"
+        # 一台从库悄悄断网时,等待同步确认的提交最多卡这么久(默认 60 秒)。
+        wal_sender_timeout: 10s
+        wal_receiver_timeout: 10s
+        hot_standby: "on"
+        max_connections: $PT_MAX_CONNECTIONS
+        max_worker_processes: $PT_MAX_WORKER_PROCESSES
+        max_wal_senders: 10
+        max_replication_slots: 10
+        max_prepared_transactions: 0
+        max_locks_per_transaction: 64
+        track_commit_timestamp: "off"
+
+postgresql:
+  listen: 0.0.0.0:5432
+  connect_address: "$PT_HOST:5432"
+  data_dir: /var/lib/postgresql/data
+  # 沿用 supabase 自带的 postgresql.conf(supautils / pg_cron / pg_net 等预加载全在里面)。
+  custom_conf: /etc/postgresql/postgresql.conf
+  pgpass: /tmp/pgpass
+  use_unix_socket: true
+  authentication:
+    superuser:
+      username: supabase_admin
+      password: "$PT_SUPERUSER_PASSWORD"
+    replication:
+      username: supabase_replication_admin
+      password: "$PT_REPL_PASSWORD"
+  # 与镜像自带 pg_hba.conf 逐行一致,外加 replication 行(镜像自带的 all 不匹配复制连接)。
+  pg_hba:
+    - local all supabase_admin scram-sha-256
+    - local all all peer map=supabase_map
+    - host all all 127.0.0.1/32 trust
+    - host all all ::1/128 trust
+    - host replication supabase_replication_admin 127.0.0.1/32 trust
+    - host replication supabase_replication_admin ::1/128 trust
+    - host replication supabase_replication_admin 10.0.0.0/8 scram-sha-256
+    - host replication supabase_replication_admin 172.16.0.0/12 scram-sha-256
+    - host replication supabase_replication_admin 192.168.0.0/16 scram-sha-256
+    - host all all 10.0.0.0/8 scram-sha-256
+    - host all all 172.16.0.0/12 scram-sha-256
+    - host all all 192.168.0.0/16 scram-sha-256
+    - host all all 0.0.0.0/0 scram-sha-256
+    - host all all ::0/0 scram-sha-256
+  pg_ident:
+    - supabase_map postgres postgres
+    - supabase_map root postgres
+    - supabase_map ubuntu postgres
+    - supabase_map gotrue supabase_auth_admin
+    - supabase_map postgrest authenticator
+    - supabase_map adminapi postgres
+  callbacks:
+    on_role_change: /opt/patroni/on-role-change.sh
+
+tags:
+  nofailover: false
+  noloadbalance: false
+  clonefrom: false
+  nosync: $PT_NOSYNC

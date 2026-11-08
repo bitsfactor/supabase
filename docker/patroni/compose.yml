@@ -1,0 +1,244 @@
+# 测试环境(colima profile patroni-test)的 Patroni 集群:5 个 etcd + 4 个库 + 4 个库入口。
+# 前置:drills/lib.sh 已建网络 pt-net、卷 pt-data-<节点>(PGDATA,先由「旧架构」建好)与 pt-cfg-<节点>。
+# 用法:drills/lib.sh 里的 pt_compose;单个服务按名字起停,不整体 down。
+name: pt
+networks:
+  pt-net:
+    external: true
+    name: patroni-test
+volumes:
+  pt-data-ny1:
+    external: true
+  pt-cfg-ny1:
+    external: true
+  pt-data-mia:
+    external: true
+  pt-cfg-mia:
+    external: true
+  pt-data-los:
+    external: true
+  pt-cfg-los:
+    external: true
+  pt-data-los2:
+    external: true
+  pt-cfg-los2:
+    external: true
+
+x-etcd: &etcd
+  image: quay.io/coreos/etcd:v3.5.17
+  restart: unless-stopped
+x-db-env: &dbenv
+  PT_SCOPE: supabase-main
+  PT_ETCD_HOSTS: "pt-etcd-ny1:2379,pt-etcd-mia:2379,pt-etcd-los:2379,pt-etcd-los2:2379,pt-etcd-x:2379"
+  PT_MAX_CONNECTIONS: "2000"
+  PT_SUPERUSER_PASSWORD: "${PT_PW:-pt-test-password}"
+  PT_REPL_PASSWORD: "${PT_PW:-pt-test-password}"
+  PT_STANDBY_HOST: "${PT_STANDBY_HOST:-}"
+  PT_STANDBY_SLOT: "${PT_STANDBY_SLOT:-}"
+  PT_SYNC: "${PT_SYNC:-false}"
+x-ha-env: &haenv
+  HA_NODES: "ny1=10.77.0.21,mia=10.77.0.85,los=10.77.0.149,los2=10.77.0.151"
+  ENTRY_PORT: "5433"
+  HA_MODE: "${HA_MODE:-patroni}"
+  HA_LEGACY: "${HA_LEGACY:-}"
+services:
+  etcd-ny1:
+    <<: *etcd
+    container_name: pt-etcd-ny1
+    networks: {pt-net: {ipv4_address: 10.77.0.11}}
+    cap_add: [NET_ADMIN]
+    mem_limit: 256m
+    command:
+      - etcd
+      - --name=etcd-ny1
+      - --data-dir=/data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://pt-etcd-ny1:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://pt-etcd-ny1:2380
+      - --initial-cluster-token=pt
+      - --initial-cluster=etcd-ny1=http://pt-etcd-ny1:2380,etcd-mia=http://pt-etcd-mia:2380,etcd-los=http://pt-etcd-los:2380,etcd-los2=http://pt-etcd-los2:2380,etcd-x=http://pt-etcd-x:2380
+      - --initial-cluster-state=new
+      # 跨洲 ~65ms 往返:心跳 ≥ 最大往返,选举超时 ≥ 10 倍心跳。
+      - --heartbeat-interval=200
+      - --election-timeout=2000
+  etcd-mia:
+    <<: *etcd
+    container_name: pt-etcd-mia
+    networks: {pt-net: {ipv4_address: 10.77.0.75}}
+    cap_add: [NET_ADMIN]
+    mem_limit: 256m
+    command:
+      - etcd
+      - --name=etcd-mia
+      - --data-dir=/data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://pt-etcd-mia:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://pt-etcd-mia:2380
+      - --initial-cluster-token=pt
+      - --initial-cluster=etcd-ny1=http://pt-etcd-ny1:2380,etcd-mia=http://pt-etcd-mia:2380,etcd-los=http://pt-etcd-los:2380,etcd-los2=http://pt-etcd-los2:2380,etcd-x=http://pt-etcd-x:2380
+      - --initial-cluster-state=new
+      # 跨洲 ~65ms 往返:心跳 ≥ 最大往返,选举超时 ≥ 10 倍心跳。
+      - --heartbeat-interval=200
+      - --election-timeout=2000
+  etcd-los:
+    <<: *etcd
+    container_name: pt-etcd-los
+    networks: {pt-net: {ipv4_address: 10.77.0.139}}
+    cap_add: [NET_ADMIN]
+    mem_limit: 256m
+    command:
+      - etcd
+      - --name=etcd-los
+      - --data-dir=/data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://pt-etcd-los:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://pt-etcd-los:2380
+      - --initial-cluster-token=pt
+      - --initial-cluster=etcd-ny1=http://pt-etcd-ny1:2380,etcd-mia=http://pt-etcd-mia:2380,etcd-los=http://pt-etcd-los:2380,etcd-los2=http://pt-etcd-los2:2380,etcd-x=http://pt-etcd-x:2380
+      - --initial-cluster-state=new
+      # 跨洲 ~65ms 往返:心跳 ≥ 最大往返,选举超时 ≥ 10 倍心跳。
+      - --heartbeat-interval=200
+      - --election-timeout=2000
+  etcd-los2:
+    <<: *etcd
+    container_name: pt-etcd-los2
+    networks: {pt-net: {ipv4_address: 10.77.0.141}}
+    cap_add: [NET_ADMIN]
+    mem_limit: 256m
+    command:
+      - etcd
+      - --name=etcd-los2
+      - --data-dir=/data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://pt-etcd-los2:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://pt-etcd-los2:2380
+      - --initial-cluster-token=pt
+      - --initial-cluster=etcd-ny1=http://pt-etcd-ny1:2380,etcd-mia=http://pt-etcd-mia:2380,etcd-los=http://pt-etcd-los:2380,etcd-los2=http://pt-etcd-los2:2380,etcd-x=http://pt-etcd-x:2380
+      - --initial-cluster-state=new
+      # 跨洲 ~65ms 往返:心跳 ≥ 最大往返,选举超时 ≥ 10 倍心跳。
+      - --heartbeat-interval=200
+      - --election-timeout=2000
+  etcd-x:
+    <<: *etcd
+    container_name: pt-etcd-x
+    networks: {pt-net: {ipv4_address: 10.77.0.203}}
+    cap_add: [NET_ADMIN]
+    mem_limit: 256m
+    command:
+      - etcd
+      - --name=etcd-x
+      - --data-dir=/data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://pt-etcd-x:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://pt-etcd-x:2380
+      - --initial-cluster-token=pt
+      - --initial-cluster=etcd-ny1=http://pt-etcd-ny1:2380,etcd-mia=http://pt-etcd-mia:2380,etcd-los=http://pt-etcd-los:2380,etcd-los2=http://pt-etcd-los2:2380,etcd-x=http://pt-etcd-x:2380
+      - --initial-cluster-state=new
+      # 跨洲 ~65ms 往返:心跳 ≥ 最大往返,选举超时 ≥ 10 倍心跳。
+      - --heartbeat-interval=200
+      - --election-timeout=2000
+  db-ny1:
+    image: pt-patroni:latest
+    container_name: pt-ny1
+    restart: unless-stopped
+    networks: {pt-net: {ipv4_address: 10.77.0.21}}
+    cap_add: [NET_ADMIN]
+    shm_size: 256mb
+    mem_limit: 4g
+    environment:
+      <<: *dbenv
+      PT_NAME: ny1
+      PT_HOST: pt-ny1
+      PT_NOSYNC: "false"
+    volumes:
+      - pt-data-ny1:/var/lib/postgresql/data
+      - pt-cfg-ny1:/etc/postgresql-custom
+  ha-ny1:
+    image: pt-haproxy:latest
+    container_name: pt-ha-ny1
+    restart: unless-stopped
+    networks: {pt-net: {ipv4_address: 10.77.0.22}}
+    cap_add: [NET_ADMIN]
+    mem_limit: 128m
+    environment:
+      <<: *haenv
+  db-mia:
+    image: pt-patroni:latest
+    container_name: pt-mia
+    restart: unless-stopped
+    networks: {pt-net: {ipv4_address: 10.77.0.85}}
+    cap_add: [NET_ADMIN]
+    shm_size: 256mb
+    mem_limit: 4g
+    environment:
+      <<: *dbenv
+      PT_NAME: mia
+      PT_HOST: pt-mia
+      PT_NOSYNC: "false"
+    volumes:
+      - pt-data-mia:/var/lib/postgresql/data
+      - pt-cfg-mia:/etc/postgresql-custom
+  ha-mia:
+    image: pt-haproxy:latest
+    container_name: pt-ha-mia
+    restart: unless-stopped
+    networks: {pt-net: {ipv4_address: 10.77.0.86}}
+    cap_add: [NET_ADMIN]
+    mem_limit: 128m
+    environment:
+      <<: *haenv
+  db-los:
+    image: pt-patroni:latest
+    container_name: pt-los
+    restart: unless-stopped
+    networks: {pt-net: {ipv4_address: 10.77.0.149}}
+    cap_add: [NET_ADMIN]
+    shm_size: 256mb
+    mem_limit: 4g
+    environment:
+      <<: *dbenv
+      PT_NAME: los
+      PT_HOST: pt-los
+      PT_NOSYNC: "true"
+    volumes:
+      - pt-data-los:/var/lib/postgresql/data
+      - pt-cfg-los:/etc/postgresql-custom
+  ha-los:
+    image: pt-haproxy:latest
+    container_name: pt-ha-los
+    restart: unless-stopped
+    networks: {pt-net: {ipv4_address: 10.77.0.150}}
+    cap_add: [NET_ADMIN]
+    mem_limit: 128m
+    environment:
+      <<: *haenv
+  db-los2:
+    image: pt-patroni:latest
+    container_name: pt-los2
+    restart: unless-stopped
+    networks: {pt-net: {ipv4_address: 10.77.0.151}}
+    cap_add: [NET_ADMIN]
+    shm_size: 256mb
+    mem_limit: 4g
+    environment:
+      <<: *dbenv
+      PT_NAME: los2
+      PT_HOST: pt-los2
+      PT_NOSYNC: "false"
+    volumes:
+      - pt-data-los2:/var/lib/postgresql/data
+      - pt-cfg-los2:/etc/postgresql-custom
+  ha-los2:
+    image: pt-haproxy:latest
+    container_name: pt-ha-los2
+    restart: unless-stopped
+    networks: {pt-net: {ipv4_address: 10.77.0.152}}
+    cap_add: [NET_ADMIN]
+    mem_limit: 128m
+    environment:
+      <<: *haenv
