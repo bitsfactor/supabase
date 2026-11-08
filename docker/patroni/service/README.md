@@ -6,4 +6,4 @@
 应急操作(状态 / 设为主库 / 暂停恢复 / 停掉这台 / 重新加入)走 one 的应急系统能力 `supabase.patroni_*`,不在这里。
 迁移期:`ENTRY_BACKUP`(旧主库 IP:端口)让库入口把旧主库当备用后端,服务先改连入口再切主;迁移完清空。`secrets` 里的超级用户口令取自 system_config,不在这里抄第二份。
 etcd 使用双向证书,接管不换口令。`db-config` 卷沿用原 supabase 的,全新机器自动创建;旧卷根密钥不一致时须先按迁移清单停从库、保存旧密钥到密钥库并统一为主库密钥,容器启动不会自行覆盖。
-普通连接名单只放在 Patroni 动态 `postgresql.pg_hba`:本机网段(`samenet`)与库机器地址,复制规则不变。本机 `postgresql` 不得覆盖它,`bootstrap` 兼容名单只用于首次初始化。所有服务改连入口并核实后,经 `scripts/patroni_sync_nodes.py --hba-script <node>` 生成首次加固脚本,由平台 `node.run` 执行(内部用原生 `patronictl edit-config`)。此后平台成功部署的新节点由同一步骤现查节点白名单视图的 Patroni 子集、自动补地址并刷新应急离线清单,不另跑手工同步。失败恢复启用前保存的完整动态 HBA 名单,不要删除字段代替回退。同出口的库机器仍可绕入口直连,服务必须只经入口。
+普通连接名单只放在 Patroni 动态 `postgresql.pg_hba`:本机网段(`samenet`)与库机器地址,复制规则不变。本机 `postgresql` 不得覆盖它,`bootstrap` 兼容名单只用于首次初始化。所有服务改连入口并核实后,经 `scripts/patroni_sync_nodes.py --hba-script <node>` 生成首次加固脚本,由平台 `node.run` 执行(内部用原生 `patronictl edit-config`)。此后平台成功部署的新节点由同一步骤现查节点白名单视图的 Patroni 子集、按当前库机器名单整体替换地址(移出的同步删除)、刷新应急离线清单并安装该机盯守专用钥匙,不另跑手工同步。失败恢复启用前保存的完整动态 HBA 名单,不要删除字段代替回退。同出口的库机器仍可绕入口直连,服务必须只经入口。

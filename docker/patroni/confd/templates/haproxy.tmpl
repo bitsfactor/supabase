@@ -2,8 +2,8 @@
 # 一个后端被判下线的那一刻掐断所有经它的连接,客户端连接池立刻重连到新主。
 global
     maxconn 4000
-    # 平滑重载(成员表变了)不掐已有连接:旧进程等连接自然结束,最多再活 2 小时(比 timeout client/server 的 1 小时长)
-    hard-stop-after 2h
+    # 重载后旧进程不再检查后端,最多保留旧会话 30 秒,然后由客户端重连。
+    hard-stop-after 30s
     stats socket /tmp/haproxy.sock mode 600 level admin
 
 defaults
