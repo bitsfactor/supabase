@@ -23,6 +23,12 @@ def load_module(name, path):
 
 
 class PatroniTests(unittest.TestCase):
+    def test_migration_hba_preserves_the_original_postgres_replication_account(self):
+        configuration = yaml.safe_load((PATRONI / 'patroni.yml').read_text())
+        for rules in [configuration['bootstrap']['pg_hba'], configuration['bootstrap']['dcs']['postgresql']['pg_hba']]:
+            self.assertIn('host replication postgres 0.0.0.0/0 scram-sha-256', rules)
+            self.assertIn('host replication postgres ::/0 scram-sha-256', rules)
+
     def test_entry_closes_legacy_sessions_when_new_primary_is_ready(self):
         template = (PATRONI / 'confd/templates/haproxy.tmpl').read_text()
         defaults = next(line for line in template.splitlines() if line.strip().startswith('default-server '))

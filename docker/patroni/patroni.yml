@@ -47,6 +47,9 @@ bootstrap:
     # 成员跨机房、走公网地址:这里放开来源,谁能连由源站防火墙(fleet_allowlist)管,pg_hba 里不列节点 IP。
     - host replication supabase_replication_admin 0.0.0.0/0 scram-sha-256
     - host replication supabase_replication_admin ::/0 scram-sha-256
+    # 逐台迁移期：原 replica_init 的级联下游仍用 postgres；全部换装后才从动态 HBA 撤销。
+    - host replication postgres 0.0.0.0/0 scram-sha-256
+    - host replication postgres ::/0 scram-sha-256
     - host all all 10.0.0.0/8 scram-sha-256
     - host all all 172.16.0.0/12 scram-sha-256
     - host all all 192.168.0.0/16 scram-sha-256
