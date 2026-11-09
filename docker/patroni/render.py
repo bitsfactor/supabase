@@ -29,8 +29,28 @@ def parse_migration_slots(value: str) -> list:
     return names
 
 
+def invalid_password_fields(values: dict) -> list:
+    """只返回无法供认证链路无损使用的口令键名，绝不返回口令。"""
+    invalid = []
+    for key in ('PT_REST_PASSWORD', 'PT_SUPERUSER_PASSWORD', 'PT_REPL_PASSWORD'):
+        if key not in values:
+            continue
+        value = values[key]
+        if not isinstance(value, str) or not value or any(ord(character) < 32 or 127 <= ord(character) <= 159 for character in value):
+            invalid.append(key)
+            continue
+        try:
+            value.encode('utf-8')
+        except UnicodeError:
+            invalid.append(key)
+    return invalid
+
+
 def render_configuration(template_text: str, values: dict) -> str:
     """用实际环境值在YAML节点层生成完整配置，不写文件或输出认证值。"""
+    invalid = invalid_password_fields(values)
+    if invalid:
+        raise ValueError('render.py: invalid password fields: ' + ', '.join(invalid) + '; requires nonempty UTF-8 without control characters')
     import yaml
     env = Env(values)
     standby_host = values.get("PT_STANDBY_HOST", "")

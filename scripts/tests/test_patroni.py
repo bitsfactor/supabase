@@ -23,6 +23,16 @@ def load_module(name, path):
 
 
 class PatroniTests(unittest.TestCase):
+    def test_invalid_passwords_are_rejected_by_the_full_generator(self):
+        renderer = load_module('patroni_password_validation', PATRONI / 'render.py')
+        for field in ('PT_REST_PASSWORD', 'PT_SUPERUSER_PASSWORD', 'PT_REPL_PASSWORD'):
+            for password in ['bad\nline', 'bad\r', 'bad\0nul', 'bad\ttab', 'bad\x7f', 'bad\x85', 'bad\ud800', '']:
+                with self.subTest(field=field, password=repr(password)):
+                    with self.assertRaises(ValueError) as error:
+                        renderer.render_configuration('bootstrap:\n  dcs: {}\n', {field:password})
+                    self.assertIn(field, str(error.exception))
+                    self.assertNotIn('bad', str(error.exception))
+
     def test_full_configuration_round_trips_yaml_password_values(self):
         renderer = load_module('patroni_full_render', PATRONI / 'render.py')
         values = {'PT_NAME':'fixture', 'PT_HOST':'192.0.2.1', 'PT_PG_PORT':'5433', 'PT_REST_PORT':'8008',
@@ -30,7 +40,7 @@ class PatroniTests(unittest.TestCase):
                   'PT_REPL_PASSWORD':'fixture', 'PT_MAX_CONNECTIONS':'100', 'PT_MAX_WAL_SENDERS':'10',
                   'PT_MAX_REPLICATION_SLOTS':'10', 'PT_MAX_WORKER_PROCESSES':'8', 'PT_MAX_LOCKS_PER_TRANSACTION':'64',
                   'PT_MAX_PREPARED_TRANSACTIONS':'0'}
-        for password in ['quote"single\'slash\\', 'line1\nline2\t$literal:#', 'unicode-\u4e2d\u6587-\U0001f600']:
+        for password in ['quote"single\'slash\\', 'colon:backslash\\$literal:#', 'unicode-\u4e2d\u6587-\U0001f600']:
             with self.subTest(password=password):
                 configuration = yaml.safe_load(renderer.render_configuration((PATRONI/'patroni.yml').read_text(),
                     dict(values, PT_REST_PASSWORD=password, PT_SUPERUSER_PASSWORD=password, PT_REPL_PASSWORD=password)))
