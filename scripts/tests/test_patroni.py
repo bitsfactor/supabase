@@ -23,6 +23,15 @@ def load_module(name, path):
 
 
 class PatroniTests(unittest.TestCase):
+    def test_authentication_passwords_use_one_ascii_allowlist(self):
+        renderer = load_module('patroni_password_allowlist', PATRONI / 'render.py')
+        for field in ('PT_REST_PASSWORD', 'PT_SUPERUSER_PASSWORD', 'PT_REPL_PASSWORD'):
+            for value in ['a'*15, 'unicode-中文-valid-length', 'unicode-é-valid-length', 'valid-length:colon', 'valid-length\\slash']:
+                with self.subTest(field=field), self.assertRaises(ValueError):
+                    renderer.render_configuration('bootstrap:\n  dcs: {}\n', {field:value})
+            for value in ['A'*16, 'a'*32, 'Valid_Ascii-18.abc']:
+                self.assertEqual(renderer.invalid_password_fields({field:value}), [])
+
     def test_invalid_passwords_are_rejected_by_the_full_generator(self):
         renderer = load_module('patroni_password_validation', PATRONI / 'render.py')
         for field in ('PT_REST_PASSWORD', 'PT_SUPERUSER_PASSWORD', 'PT_REPL_PASSWORD'):
@@ -40,7 +49,7 @@ class PatroniTests(unittest.TestCase):
                   'PT_REPL_PASSWORD':'fixture', 'PT_MAX_CONNECTIONS':'100', 'PT_MAX_WAL_SENDERS':'10',
                   'PT_MAX_REPLICATION_SLOTS':'10', 'PT_MAX_WORKER_PROCESSES':'8', 'PT_MAX_LOCKS_PER_TRANSACTION':'64',
                   'PT_MAX_PREPARED_TRANSACTIONS':'0'}
-        for password in ['quote"single\'slash\\', 'colon:backslash\\$literal:#', 'unicode-\u4e2d\u6587-\U0001f600']:
+        for password in ['Valid_Ascii-18.abc', '0123456789abcdef', 'fixture-auth-18-safe']:
             with self.subTest(password=password):
                 configuration = yaml.safe_load(renderer.render_configuration((PATRONI/'patroni.yml').read_text(),
                     dict(values, PT_REST_PASSWORD=password, PT_SUPERUSER_PASSWORD=password, PT_REPL_PASSWORD=password)))
@@ -99,8 +108,8 @@ class PatroniTests(unittest.TestCase):
             'PT_NAME': 'fixture', 'PT_HOST': '192.0.2.1',
             'PT_PG_PORT': '5433', 'PT_REST_PORT': '8008',
             'PT_ETCD_HOSTS': '192.0.2.2:2379',
-            'PT_REST_PASSWORD': 'fixture', 'PT_SUPERUSER_PASSWORD': 'fixture',
-            'PT_REPL_PASSWORD': 'fixture', 'PT_MAX_CONNECTIONS': '100',
+            'PT_REST_PASSWORD': 'fixture-auth-18-safe', 'PT_SUPERUSER_PASSWORD': 'fixture-auth-18-safe',
+            'PT_REPL_PASSWORD': 'fixture-auth-18-safe', 'PT_MAX_CONNECTIONS': '100',
             'PT_MAX_WAL_SENDERS': '10', 'PT_MAX_REPLICATION_SLOTS': '10',
             'PT_MAX_WORKER_PROCESSES': '8', 'PT_MAX_LOCKS_PER_TRANSACTION': '64',
             'PT_MAX_PREPARED_TRANSACTIONS': '0',

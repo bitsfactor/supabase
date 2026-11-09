@@ -6,7 +6,7 @@
 
 首次迁移只逐台替换数据库：先在两台旧从库仍运行时单独准备 tls-init 和两票 etcd，确认全部端点健康且版本可用，再换第一台数据库，确认同集群的恢复模式及实际 streaming 后才换下一台。旧级联从库使用的物理槽通过 `PT_MIGRATION_SLOTS`（逗号分隔）写入 Patroni 原生永久槽配置，防止第一台接管时删除旧槽；这是 bootstrap 配置，已有 DCS 必须回读并用原生动态配置补齐，不能以环境变量有值代替已经生效。两台全部换好前不得删旧槽。
 
-完整生成函数与命令入口共用同一实现，按YAML节点/序列化规则保留合法口令等原值。`invalid_password_fields` 为预检与生成器共用判据：`PT_REST_PASSWORD`、`PT_SUPERUSER_PASSWORD`、`PT_REPL_PASSWORD` 拒绝空值、C0/C1控制字符（CR/LF/NUL/制表符/DEL等）及不能无损UTF-8编码的值，只报非法键名、不打印口令；引号、冒号、反斜线等合法字符仍可用。one预检从Compose实际环境值完整生成一次后丢弃，不写生成文件；口令拒绝后不发认证查询。
+完整生成函数与命令入口共用同一实现，按YAML节点/序列化规则保留合法口令等原值。`invalid_password_fields` 为预检与生成器共用判据：`PT_REST_PASSWORD`、`PT_SUPERUSER_PASSWORD`、`PT_REPL_PASSWORD` 只允许ASCII字母数字和 `._-`，长度至少16；其余字符和短口令一律拒绝，只报配置项名、不打印值。超级用户项检查本服务的引用展开值，不能拿引用令牌代替口令通过校验。one预检从Compose实际环境值完整生成一次后丢弃，不写生成文件；口令拒绝后不发认证查询。
 
 只读预检脚本 `scripts/patroni_preflight.py` 经node_run MCP在**各目标节点宿主机的选定Python环境**运行，不在管理端one或数据库容器运行。读配置前先核对当前解释器PyYAML与宿主机docker/Compose、ip/ss、du/stat、openssl、bash、git，缺失或命令失败直接拒绝并列依赖名。依赖由获批准备阶段经平台MCP满足；已有环境满足则复用，否则按one手册创建 `/opt/patroni-preflight` 环境并安装 `PyYAML>=6.0.1,<7`，后续始终用该环境的Python执行预检。预检不安装依赖；具体准备命令见one的 `docs/dr-failover-runbook.md`。管理端只合并三份节点报告，不能代替节点依赖证明。不得在生产只读预检中实际构建镜像；精确源码及目标机镜像标识匹配构建回执才通过，缺失证据一律拒绝。
 
