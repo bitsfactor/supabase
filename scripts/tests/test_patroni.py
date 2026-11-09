@@ -23,6 +23,24 @@ def load_module(name, path):
 
 
 class PatroniTests(unittest.TestCase):
+    def test_full_configuration_round_trips_yaml_password_values(self):
+        renderer = load_module('patroni_full_render', PATRONI / 'render.py')
+        values = {'PT_NAME':'fixture', 'PT_HOST':'192.0.2.1', 'PT_PG_PORT':'5433', 'PT_REST_PORT':'8008',
+                  'PT_ETCD_HOSTS':'192.0.2.2:2379', 'PT_REST_PASSWORD':'fixture', 'PT_SUPERUSER_PASSWORD':'fixture',
+                  'PT_REPL_PASSWORD':'fixture', 'PT_MAX_CONNECTIONS':'100', 'PT_MAX_WAL_SENDERS':'10',
+                  'PT_MAX_REPLICATION_SLOTS':'10', 'PT_MAX_WORKER_PROCESSES':'8', 'PT_MAX_LOCKS_PER_TRANSACTION':'64',
+                  'PT_MAX_PREPARED_TRANSACTIONS':'0'}
+        for password in ['quote"single\'slash\\', 'line1\nline2\t$literal:#', 'unicode-\u4e2d\u6587-\U0001f600']:
+            with self.subTest(password=password):
+                configuration = yaml.safe_load(renderer.render_configuration((PATRONI/'patroni.yml').read_text(),
+                    dict(values, PT_REST_PASSWORD=password, PT_SUPERUSER_PASSWORD=password, PT_REPL_PASSWORD=password)))
+                self.assertEqual(configuration['restapi']['authentication']['password'], password)
+                self.assertEqual(configuration['ctl']['authentication']['password'], password)
+                self.assertEqual(configuration['postgresql']['authentication']['superuser']['password'], password)
+                self.assertEqual(configuration['postgresql']['authentication']['replication']['password'], password)
+                self.assertEqual(configuration['bootstrap']['dcs']['postgresql']['parameters']['max_connections'], 100)
+                self.assertIs(configuration['tags']['nosync'], False)
+
     def test_migration_slot_names_share_render_validation(self):
         renderer = load_module('patroni_render_slot_validation', PATRONI / 'render.py')
         self.assertEqual(renderer.parse_migration_slots(''), [])

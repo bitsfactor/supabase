@@ -29,28 +29,61 @@ def parse_migration_slots(value: str) -> list:
     return names
 
 
-def main(template_path: str) -> None:
+def render_configuration(template_text: str, values: dict) -> str:
+    """用实际环境值在YAML节点层生成完整配置，不写文件或输出认证值。"""
     import yaml
-    env = Env(os.environ)
-    standby_host = os.environ.get("PT_STANDBY_HOST", "")
+    env = Env(values)
+    standby_host = values.get("PT_STANDBY_HOST", "")
     # 同步提交(任一从库确认即可,quorum)是生产缺省;迁移期整个集群是备用集群,不支持同步,切主时那条 edit-config 一并打开。
-    env["PT_SYNC"] = os.environ.get("PT_SYNC") or ("false" if standby_host else "quorum")
-    text = string.Template(open(template_path).read()).substitute(env)
-    configuration = yaml.safe_load(text)
+    env["PT_SYNC"] = values.get("PT_SYNC") or ("false" if standby_host else "quorum")
+    visited = set()
+    def substitute(node):
+        if id(node) in visited:
+            return
+        visited.add(id(node))
+        if isinstance(node, yaml.ScalarNode) and "$" in node.value:
+            value = string.Template(node.value).substitute(env)
+            if node.style is None:
+                scalar = yaml.compose(value)
+                if not isinstance(scalar, yaml.ScalarNode):
+                    raise ValueError("render.py: invalid scalar environment value")
+                node.tag, node.value = scalar.tag, scalar.value
+            else:
+                node.value = value
+        elif isinstance(node, yaml.MappingNode):
+            for key, value in node.value:
+                substitute(key)
+                substitute(value)
+        elif isinstance(node, yaml.SequenceNode):
+            for item in node.value:
+                substitute(item)
+    try:
+        root = yaml.compose(template_text)
+        substitute(root)
+        configuration = yaml.safe_load(yaml.serialize(root))
+    except yaml.YAMLError:
+        raise ValueError("render.py: invalid YAML configuration") from None
     # 逐台接管时，尚未换装的级联从库仍持有旧槽；由原生永久槽保住它。
     try:
-        migration_slots = parse_migration_slots(os.environ.get("PT_MIGRATION_SLOTS", ""))
+        migration_slots = parse_migration_slots(values.get("PT_MIGRATION_SLOTS", ""))
     except ValueError as error:
         raise SystemExit("render.py: " + str(error)) from error
     if migration_slots:
         configuration["bootstrap"]["dcs"]["slots"] = {name: {"type": "physical"} for name in migration_slots}
     if standby_host:
         # 迁移期:整个 Patroni 集群先当旧主库的「备用集群」,切主时再摘掉这一块(见 drills/01-migrate.sh)。
-        block = {"host": standby_host, "port": int(os.environ.get("PT_STANDBY_PORT", "5433"))}
-        if os.environ.get("PT_STANDBY_SLOT"):
-            block["primary_slot_name"] = os.environ["PT_STANDBY_SLOT"]
+        block = {"host": standby_host, "port": int(values.get("PT_STANDBY_PORT", "5433"))}
+        if values.get("PT_STANDBY_SLOT"):
+            block["primary_slot_name"] = values["PT_STANDBY_SLOT"]
         configuration["bootstrap"]["dcs"]["standby_cluster"] = block
-    yaml.safe_dump(configuration, sys.stdout, default_flow_style=False)
+    try:
+        return yaml.safe_dump(configuration, default_flow_style=False)
+    except yaml.YAMLError:
+        raise ValueError("render.py: invalid YAML configuration") from None
+
+
+def main(template_path: str) -> None:
+    sys.stdout.write(render_configuration(open(template_path).read(), dict(os.environ)))
 
 
 if __name__ == "__main__":
