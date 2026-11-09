@@ -73,6 +73,26 @@ config_schema:
     label: max_connections(各节点必须一致)
     type: integer
     default: "2000"
+  - key: PT_MAX_WORKER_PROCESSES
+    label: max_worker_processes
+    type: integer
+    default: "8"
+  - key: PT_MAX_WAL_SENDERS
+    label: max_wal_senders
+    type: integer
+    default: "10"
+  - key: PT_MAX_REPLICATION_SLOTS
+    label: max_replication_slots
+    type: integer
+    default: "10"
+  - key: PT_MAX_PREPARED_TRANSACTIONS
+    label: max_prepared_transactions
+    type: integer
+    default: "0"
+  - key: PT_MAX_LOCKS_PER_TRANSACTION
+    label: max_locks_per_transaction
+    type: integer
+    default: "64"
   # ---- 每机级(节点身份与证书,用每机配置覆盖) ----
   - key: PT_NAME
     label: 成员名(= 节点名)
