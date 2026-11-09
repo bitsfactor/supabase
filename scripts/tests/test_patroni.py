@@ -39,12 +39,13 @@ class PatroniTests(unittest.TestCase):
         self.assertEqual(fields['ETCD_INITIAL_CLUSTER_STATE']['default'], 'new')
         compose = (PATRONI / 'service/docker-compose.yml').read_text()
         self.assertIn('--initial-cluster-state=${ETCD_INITIAL_CLUSTER_STATE:-new}', compose)
-        for name, reference in [('PT_SUPERUSER_PASSWORD', 'system_config:supabase_postgres.password'),
-                                ('PT_PGSODIUM_ROOT_KEY', 'system_config:supabase_postgres.pgsodium_root_key')]:
+        for name, reference in [('PT_SUPERUSER_PASSWORD', 'system_config:supabase_postgres.password')]:
             self.assertEqual(fields[name]['default'], reference)
             self.assertEqual(fields[name]['type'], 'password')
             self.assertTrue(fields[name]['required'])
             self.assertFalse(any(item['env'] == name for item in manifest.get('secrets', [])))
+        self.assertEqual(fields['PT_PGSODIUM_ROOT_KEY']['default'], '')
+        self.assertFalse(fields['PT_PGSODIUM_ROOT_KEY'].get('required', False))
 
     def test_render(self):
         environment = {
@@ -76,7 +77,7 @@ class PatroniTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('is required', result.stderr)
 
-    def test_key_install_refuses_missing_invalid_and_overwrite(self):
+    def test_key_install_preserves_unmanaged_files_and_refuses_explicit_overwrite(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'root.key'
             environment = {'PATH': os.defpath, 'PGSODIUM_KEY_FILE': str(path), 'PGSODIUM_SKIP_CHOWN': '1'}
@@ -84,7 +85,8 @@ class PatroniTests(unittest.TestCase):
                 return subprocess.run(['bash', str(PATRONI / 'pgsodium-key.sh')],
                                       env={**environment, 'PT_PGSODIUM_ROOT_KEY': key},
                                       capture_output=True, text=True)
-            self.assertEqual(run('').returncode, 79)
+            self.assertEqual(run('').returncode, 0)
+            self.assertFalse(path.exists())
             self.assertEqual(run('invalid').returncode, 79)
             self.assertFalse(path.exists())
             self.assertEqual(run('a' * 64).returncode, 0)
@@ -93,6 +95,14 @@ class PatroniTests(unittest.TestCase):
             self.assertEqual(run('').returncode, 0)
             self.assertEqual(run('b' * 64).returncode, 79)
             self.assertEqual(path.read_text(), 'a' * 64)
+            path.write_text('legacy-key-not-validated-when-unmanaged')
+            path.chmod(0o640)
+            before = path.stat()
+            self.assertEqual(run('').returncode, 0)
+            after = path.stat()
+            self.assertEqual(path.read_text(), 'legacy-key-not-validated-when-unmanaged')
+            self.assertEqual((after.st_ino, after.st_mode, after.st_mtime_ns),
+                             (before.st_ino, before.st_mode, before.st_mtime_ns))
 
     def test_guard_state_and_failed_stop(self):
         guard = load_module('patroni_guard', PATRONI / 'guard.py')

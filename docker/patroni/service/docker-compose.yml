@@ -78,7 +78,7 @@ services:
       PT_MAX_PREPARED_TRANSACTIONS: ${PT_MAX_PREPARED_TRANSACTIONS:-0}
       PT_STANDBY_HOST: ${PT_STANDBY_HOST:-}      # 迁移期:整个 Patroni 集群先当现主库的备用集群(切主时 edit-config 去掉)
       PT_STANDBY_PORT: ${PT_STANDBY_PORT:-5433}      # 直连库端口(5432 是连接池)
-      PT_PGSODIUM_ROOT_KEY: ${PT_PGSODIUM_ROOT_KEY:-}      # 来自密钥库,启动前放进 db-config 卷(pgsodium-key.sh)
+      PT_PGSODIUM_ROOT_KEY: ${PT_PGSODIUM_ROOT_KEY:-}      # 可选;空值不管理原卷密钥,启用加密前必须统一
       PT_STANDBY_SLOT: ${PT_STANDBY_SLOT:-}
       PT_NOSYNC: ${PT_NOSYNC:-false}
       PT_SYNC: ${PT_SYNC:-}      # 空 = 生产缺省 quorum(任一从库确认才算提交);迁移期(有 PT_STANDBY_HOST)自动为 false

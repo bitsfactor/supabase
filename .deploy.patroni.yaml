@@ -32,10 +32,10 @@ config_schema:
     required: true
     default: system_config:supabase_postgres.password
   - key: PT_PGSODIUM_ROOT_KEY
-    label: pgsodium 根密钥引用
+    label: pgsodium 根密钥引用(可选)
     type: password
-    required: true
-    default: system_config:supabase_postgres.pgsodium_root_key
+    default: ""
+    help: 留空不管理原卷密钥;启用 vault / pgsodium 加密前必须先统一根密钥。显式配置可引用 system_config:supabase_postgres.pgsodium_root_key
   - key: TLS_CA_B64
     label: 私有 CA 证书(base64)
     type: password
@@ -142,7 +142,7 @@ config_schema:
     type: password
     required: true
 
-# 两项口令与根密钥通过上面的默认引用取 system_config,测试可覆盖为独立引用,不复制正式密钥。
+# 超级用户口令默认引用 system_config;根密钥仅显式配置时管理,不复制正式密钥。
 
 exposed_ports:
   - 5000
