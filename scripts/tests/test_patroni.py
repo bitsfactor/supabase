@@ -37,6 +37,11 @@ class PatroniTests(unittest.TestCase):
         self.assertEqual(fields['PT_DATA_DIR']['default'], '/opt/supabase/docker/volumes/db/data')
         self.assertEqual(fields['PT_SYNC']['default'], '')
         self.assertEqual(fields['ETCD_INITIAL_CLUSTER_STATE']['default'], 'new')
+        self.assertEqual(fields['PT_NETWORK_SUBNET']['default'], '10.254.240.0/28')
+        self.assertEqual(fields['PT_MIGRATION_SLOTS']['default'], '')
+        network = yaml.safe_load((PATRONI / 'service/docker-compose.yml').read_text())['networks']['default']
+        self.assertEqual(network['name'], 'patroni-fixed')
+        self.assertEqual(network['ipam']['config'], [{'subnet': '${PT_NETWORK_SUBNET:-10.254.240.0/28}'}])
         compose = (PATRONI / 'service/docker-compose.yml').read_text()
         self.assertIn('--initial-cluster-state=${ETCD_INITIAL_CLUSTER_STATE:-new}', compose)
         for name, reference in [('PT_SUPERUSER_PASSWORD', 'system_config:supabase_postgres.password')]:
@@ -59,6 +64,7 @@ class PatroniTests(unittest.TestCase):
             'PT_MAX_PREPARED_TRANSACTIONS': '0',
         }
         for extra, expected in [({}, 'quorum'), ({'PT_STANDBY_HOST': '192.0.2.3'}, False),
+                                ({'PT_MIGRATION_SLOTS': 'old_cascade_slot'}, 'quorum'),
                                 ({'PT_SYNC': 'false'}, False)]:
             with self.subTest(extra=extra):
                 result = subprocess.run([sys.executable, str(PATRONI / 'render.py'),
@@ -66,6 +72,8 @@ class PatroniTests(unittest.TestCase):
                                         capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 configuration = yaml.safe_load(result.stdout)
+                if extra.get('PT_MIGRATION_SLOTS'):
+                    self.assertEqual(configuration['bootstrap']['dcs']['slots'], {'old_cascade_slot': {'type': 'physical'}})
                 self.assertEqual(configuration['bootstrap']['dcs']['synchronous_mode'], expected)
                 self.assertEqual(configuration['restapi']['verify_client'], 'required')
                 self.assertEqual(configuration['bootstrap']['dcs']['postgresql']['parameters']['wal_level'], 'logical')
@@ -76,6 +84,10 @@ class PatroniTests(unittest.TestCase):
                                  str(PATRONI / 'patroni.yml')], env={}, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('is required', result.stderr)
+        result = subprocess.run([sys.executable, str(PATRONI / 'render.py'), str(PATRONI / 'patroni.yml')],
+                                env={**environment, 'PT_MIGRATION_SLOTS': 'bad-slot'}, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('invalid physical slot name', result.stderr)
 
     def test_key_install_preserves_unmanaged_files_and_refuses_explicit_overwrite(self):
         with tempfile.TemporaryDirectory() as directory:

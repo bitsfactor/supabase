@@ -12,6 +12,16 @@ compose_file: docker/patroni/service/docker-compose.yml
 install_dir_template: /opt/{name}
 
 config_schema:
+  - key: PT_MIGRATION_SLOTS
+    label: 迁移期保留的旧级联物理槽
+    type: text
+    default: ""
+    help: 逗号分隔；原生永久槽只在首次初始化生效，换装完用动态配置精确移除
+  - key: PT_NETWORK_SUBNET
+    label: 独立容器子网
+    type: text
+    default: 10.254.240.0/28
+    help: 换装前核对全部现存网络和宿主路由；不删除或重配已有网络
   # ---- 服务级(所有库机器相同) ----
   - key: PT_SCOPE
     label: Patroni 集群名

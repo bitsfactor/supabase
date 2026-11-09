@@ -28,14 +28,22 @@ def main(template_path: str) -> None:
     # 同步提交(任一从库确认即可,quorum)是生产缺省;迁移期整个集群是备用集群,不支持同步,切主时那条 edit-config 一并打开。
     env["PT_SYNC"] = os.environ.get("PT_SYNC") or ("false" if standby_host else "quorum")
     text = string.Template(open(template_path).read()).substitute(env)
-    cfg = yaml.safe_load(text)
+    configuration = yaml.safe_load(text)
+    # 逐台接管时，尚未换装的级联从库仍持有旧槽；由原生永久槽保住它。
+    migration_slots = os.environ.get("PT_MIGRATION_SLOTS", "")
+    if migration_slots:
+        import re
+        names = migration_slots.split(",")
+        if any(not re.fullmatch(r"[a-z0-9_]{1,63}", name) for name in names):
+            raise SystemExit("render.py: PT_MIGRATION_SLOTS contains an invalid physical slot name")
+        configuration["bootstrap"]["dcs"]["slots"] = {name: {"type": "physical"} for name in names}
     if standby_host:
         # 迁移期:整个 Patroni 集群先当旧主库的「备用集群」,切主时再摘掉这一块(见 drills/01-migrate.sh)。
         block = {"host": standby_host, "port": int(os.environ.get("PT_STANDBY_PORT", "5433"))}
         if os.environ.get("PT_STANDBY_SLOT"):
             block["primary_slot_name"] = os.environ["PT_STANDBY_SLOT"]
-        cfg["bootstrap"]["dcs"]["standby_cluster"] = block
-    yaml.safe_dump(cfg, sys.stdout, default_flow_style=False)
+        configuration["bootstrap"]["dcs"]["standby_cluster"] = block
+    yaml.safe_dump(configuration, sys.stdout, default_flow_style=False)
 
 
 if __name__ == "__main__":

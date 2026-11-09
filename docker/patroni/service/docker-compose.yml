@@ -3,6 +3,12 @@
 #   etcd 只在三台投票机上:每机配置里 COMPOSE_PROFILES=etcd;后加的库机器不带它(投票组不变)。
 #   guard 只在两机房同时坏、operator 点「设为主库」接管时由应急系统在新主库机器上拉起(profile guard)。
 name: patroni
+networks:
+  default:
+    name: patroni-fixed
+    ipam:
+      config:
+        - subnet: ${PT_NETWORK_SUBNET:-10.254.240.0/28}
 x-tls: &tls {pt-tls: {}}
 services:
   tls-init:
@@ -80,6 +86,7 @@ services:
       PT_STANDBY_PORT: ${PT_STANDBY_PORT:-5433}      # 直连库端口(5432 是连接池)
       PT_PGSODIUM_ROOT_KEY: ${PT_PGSODIUM_ROOT_KEY:-}      # 可选;空值不管理原卷密钥,启用加密前必须统一
       PT_STANDBY_SLOT: ${PT_STANDBY_SLOT:-}
+      PT_MIGRATION_SLOTS: ${PT_MIGRATION_SLOTS:-}
       PT_NOSYNC: ${PT_NOSYNC:-false}
       PT_SYNC: ${PT_SYNC:-}      # 空 = 生产缺省 quorum(任一从库确认才算提交);迁移期(有 PT_STANDBY_HOST)自动为 false
   ha:

@@ -4,6 +4,7 @@
 services:
   tls-init:
     container_name: pt-tls-init-${SBX_M}
+    networks: [sbx]
   etcd:
     container_name: pt-etcd-${SBX_M}
     ports: !reset []
