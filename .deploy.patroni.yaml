@@ -51,6 +51,11 @@ config_schema:
     type: text
     required: true
     help: etcd-us-ny1=https://IP:2380,etcd-us-mia=https://IP:2380,etcd-us-los=https://IP:2380
+  - key: ETCD_INITIAL_CLUSTER_STATE
+    label: etcd 初始成员状态
+    type: text
+    default: new
+    help: 首次组投票集群用 new;原生 member add 后的新成员用 existing
   - key: PT_REST_PASSWORD
     label: Patroni REST 写口令
     type: password

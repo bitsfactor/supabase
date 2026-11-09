@@ -23,9 +23,21 @@ def relevant(path):
         path.startswith(('docker/patroni/', 'scripts/')) or path == '.deploy.patroni.yaml')
 
 
-def source_paths(root):
-    paths = run(['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard']).split('\0')
+def source_paths(root, *, include_untracked=True):
+    arguments = ['git', 'ls-files', '-z', '--cached']
+    if include_untracked:
+        arguments.extend(['--others', '--exclude-standard'])
+    paths = run(arguments).split('\0')
     return sorted({path for path in paths if relevant(path) and (root / path).is_file()})
+
+
+def offline_suite(paths):
+    """提交检查只加载纳入提交的测试；全量检查包含工作区新增测试。"""
+    suite = unittest.TestSuite()
+    for path in paths:
+        if path.startswith('scripts/tests/test_') and path.endswith('.py'):
+            suite.addTests(unittest.defaultTestLoader.loadTestsFromName(path[:-3].replace('/', '.')))
+    return suite
 
 
 def oosp_findings(path, source):
@@ -136,6 +148,7 @@ def check_compose(root):
 
 def main(arguments):
     root = Path(run(['git', 'rev-parse', '--show-toplevel']).strip())
+    sys.path.insert(0, str(root))
     if any(argument not in {'--full', '--staged'} for argument in arguments):
         raise ValueError('用法：scripts/oosp-lint.sh [--staged|--full]')
     full = os.environ.get('LINT_SCOPE') == 'full' or '--full' in arguments or '--staged' not in arguments
@@ -144,23 +157,22 @@ def main(arguments):
         if not any(relevant(path) for path in changed):
             print('Patroni：本次提交未涉及后端，跳过')
             return
-        # 测试原地运行；禁止工作区和提交内容不同造成假绿（也覆盖删除、重命名和未跟踪依赖）。
+        # 已跟踪源码须与提交一致；他人未纳入提交的新文件留在工作区，不替其提交也不收进本次测试。
         unstaged = run(['git', 'diff', '--no-renames', '--name-only', '-z']).split('\0')
-        untracked = run(['git', 'ls-files', '--others', '--exclude-standard', '-z']).split('\0')
-        differences = [path for path in unstaged + untracked if relevant(path)]
+        differences = [path for path in unstaged if relevant(path)]
         if differences:
             raise RuntimeError('后端文件与暂存区不一致，请先暂存完整被测版本：\n' + '\n'.join(differences))
     for tool in ('shellcheck', 'docker'):
         if shutil.which(tool) is None:
             raise RuntimeError(f'缺少 {tool}；安装说明见 docker/patroni/README.md')
-    paths = source_paths(root)
+    paths = source_paths(root, include_untracked=full)
     check_sources(root, paths)
     python_paths = [path for path in paths if path.endswith('.py')]
     run([sys.executable, '-m', 'ruff', 'check', '--no-cache', '--isolated', '--select', 'F,E9', *python_paths], cwd=root)
     print(f'Patroni：语法、ShellCheck、OOSP 检查通过（{len(paths)} 个文件）', flush=True)
     check_compose(root)
     print('Patroni：生产配置与沙箱叠加 Compose 校验通过', flush=True)
-    suite = unittest.defaultTestLoader.discover(str(root / 'scripts/tests'))
+    suite = offline_suite(paths)
     if suite.countTestCases() == 0:
         raise RuntimeError('未发现离线测试，拒绝空测试放行')
     result = unittest.TextTestRunner(verbosity=2).run(suite)

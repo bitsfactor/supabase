@@ -156,8 +156,8 @@ func main() {
 	if tail := now() - lastAck; lastAck != 0 && tail > maxGap {
 		maxGap = tail
 	}
-	out, _ := json.Marshal(map[string]any{"client": name, "ok": ok, "failedAttempts": failed, "maxAckGapS": int(maxGap*100) / 100.0,
-		"maxAttemptS": int(maxAttempt*100) / 100.0, "gaps": gaps, "fails": fails, "acked": acked})
+	out, _ := json.Marshal(map[string]any{"client": name, "ok": ok, "failedAttempts": failed, "maxAckGapS": maxGap,
+		"maxAttemptS": maxAttempt, "gaps": gaps, "fails": fails, "acked": acked})
 	fmt.Println("SUMMARY " + string(out))
 	os.Exit(0)
 }

@@ -23,11 +23,22 @@ def load_module(name, path):
 
 
 class PatroniTests(unittest.TestCase):
+    def test_entry_closes_legacy_sessions_when_new_primary_is_ready(self):
+        template = (PATRONI / 'confd/templates/haproxy.tmpl').read_text()
+        defaults = next(line for line in template.splitlines() if line.strip().startswith('default-server '))
+        self.assertIn('on-marked-up shutdown-backup-sessions', defaults)
+        self.assertIn('on-marked-down shutdown-sessions', defaults)
+        self.assertIn('check-ssl verify required', defaults)
+        self.assertIn('server legacy {{getenv "ENTRY_BACKUP"}} backup', template)
+
     def test_service_configuration_isolates_rehearsal_with_unchanged_defaults(self):
         manifest = yaml.safe_load((ROOT / '.deploy.patroni.yaml').read_text())
         fields = {item['key']: item for item in manifest['config_schema']}
         self.assertEqual(fields['PT_DATA_DIR']['default'], '/opt/supabase/docker/volumes/db/data')
         self.assertEqual(fields['PT_SYNC']['default'], '')
+        self.assertEqual(fields['ETCD_INITIAL_CLUSTER_STATE']['default'], 'new')
+        compose = (PATRONI / 'service/docker-compose.yml').read_text()
+        self.assertIn('--initial-cluster-state=${ETCD_INITIAL_CLUSTER_STATE:-new}', compose)
         for name, reference in [('PT_SUPERUSER_PASSWORD', 'system_config:supabase_postgres.password'),
                                 ('PT_PGSODIUM_ROOT_KEY', 'system_config:supabase_postgres.pgsodium_root_key')]:
             self.assertEqual(fields[name]['default'], reference)

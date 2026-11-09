@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import yaml
 
@@ -16,6 +17,25 @@ SPECIFICATION.loader.exec_module(CHECK)
 
 
 class GateTests(unittest.TestCase):
+    def test_staged_sources_and_suite_leave_untracked_work_untouched(self):
+        tracked = 'scripts/tests/test_tracked.py'
+        untracked = 'scripts/tests/test_other_session.py'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'scripts/tests').mkdir(parents=True)
+            for name in (tracked, untracked):
+                (root / name).write_text('fixture')
+            def listing(arguments):
+                return '\0'.join([tracked, untracked] if '--others' in arguments else [tracked])
+            with patch.object(CHECK, 'run', side_effect=listing):
+                staged = CHECK.source_paths(root, include_untracked=False)
+                self.assertEqual(staged, [tracked])
+                self.assertEqual(CHECK.source_paths(root), [untracked, tracked])
+            with patch.object(CHECK.unittest.defaultTestLoader, 'loadTestsFromName', return_value=unittest.TestSuite()) as load:
+                CHECK.offline_suite(staged)
+                load.assert_called_once_with('scripts.tests.test_tracked')
+            self.assertEqual((root / untracked).read_text(), 'fixture')
+
     def test_new_oosp_violations(self):
         examples = {
             'clock-random': 'import time\nnow_seconds = time.time()\n',
