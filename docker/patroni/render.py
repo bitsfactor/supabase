@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """渲染 Patroni 配置:patroni.yml 里的 $VAR 用环境变量替换,再按环境变量加上可选的「备用集群」块。"""
 import os
+import re
 import string
 import sys
-
-import yaml
 
 # 只有这几项有缺省值。其余(端口、必须一致的参数、口令)一律必填,缺了大声失败,不留悄悄走错的缺省:
 # PT_PG_PORT / PT_REST_PORT(生产库容器 5432 发布在宿主 5433)、PT_MAX_*(取自 production/params.env)。
@@ -22,7 +21,16 @@ class Env(dict):
         raise SystemExit(f"render.py: environment variable {key} is required")
 
 
+def parse_migration_slots(value: str) -> list:
+    """迁移物理槽名单；空字符串表示无保留项，其余逐项严格验证。"""
+    names = value.split(',') if value else []
+    if any(not re.fullmatch(r"[a-z0-9_]{1,63}", name) for name in names):
+        raise ValueError("PT_MIGRATION_SLOTS contains an invalid physical slot name")
+    return names
+
+
 def main(template_path: str) -> None:
+    import yaml
     env = Env(os.environ)
     standby_host = os.environ.get("PT_STANDBY_HOST", "")
     # 同步提交(任一从库确认即可,quorum)是生产缺省;迁移期整个集群是备用集群,不支持同步,切主时那条 edit-config 一并打开。
@@ -30,13 +38,12 @@ def main(template_path: str) -> None:
     text = string.Template(open(template_path).read()).substitute(env)
     configuration = yaml.safe_load(text)
     # 逐台接管时，尚未换装的级联从库仍持有旧槽；由原生永久槽保住它。
-    migration_slots = os.environ.get("PT_MIGRATION_SLOTS", "")
+    try:
+        migration_slots = parse_migration_slots(os.environ.get("PT_MIGRATION_SLOTS", ""))
+    except ValueError as error:
+        raise SystemExit("render.py: " + str(error)) from error
     if migration_slots:
-        import re
-        names = migration_slots.split(",")
-        if any(not re.fullmatch(r"[a-z0-9_]{1,63}", name) for name in names):
-            raise SystemExit("render.py: PT_MIGRATION_SLOTS contains an invalid physical slot name")
-        configuration["bootstrap"]["dcs"]["slots"] = {name: {"type": "physical"} for name in names}
+        configuration["bootstrap"]["dcs"]["slots"] = {name: {"type": "physical"} for name in migration_slots}
     if standby_host:
         # 迁移期:整个 Patroni 集群先当旧主库的「备用集群」,切主时再摘掉这一块(见 drills/01-migrate.sh)。
         block = {"host": standby_host, "port": int(os.environ.get("PT_STANDBY_PORT", "5433"))}

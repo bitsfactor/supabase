@@ -23,6 +23,14 @@ def load_module(name, path):
 
 
 class PatroniTests(unittest.TestCase):
+    def test_migration_slot_names_share_render_validation(self):
+        renderer = load_module('patroni_render_slot_validation', PATRONI / 'render.py')
+        self.assertEqual(renderer.parse_migration_slots(''), [])
+        self.assertEqual(renderer.parse_migration_slots('old_slot,other_2'), ['old_slot','other_2'])
+        for value in ['old_slot,', ',old_slot', 'old_slot,,other', 'Bad_slot', 'bad-slot', 'a'*64, 'old_slot, other']:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                renderer.parse_migration_slots(value)
+
     def test_migration_hba_preserves_the_original_postgres_replication_account(self):
         configuration = yaml.safe_load((PATRONI / 'patroni.yml').read_text())
         for rules in [configuration['bootstrap']['pg_hba'], configuration['bootstrap']['dcs']['postgresql']['pg_hba']]:
