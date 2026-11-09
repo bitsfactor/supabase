@@ -17,6 +17,25 @@ config_schema:
     label: Patroni 集群名
     type: text
     default: supabase-main
+  - key: PT_DATA_DIR
+    label: 数据目录
+    type: text
+    default: /opt/supabase/docker/volumes/db/data
+  - key: PT_SYNC
+    label: 同步提交模式
+    type: text
+    default: ""
+    help: 留空沿用默认模式;独立单机测试填 false
+  - key: PT_SUPERUSER_PASSWORD
+    label: 超级用户口令引用
+    type: password
+    required: true
+    default: system_config:supabase_postgres.password
+  - key: PT_PGSODIUM_ROOT_KEY
+    label: pgsodium 根密钥引用
+    type: password
+    required: true
+    default: system_config:supabase_postgres.pgsodium_root_key
   - key: TLS_CA_B64
     label: 私有 CA 证书(base64)
     type: password
@@ -98,13 +117,7 @@ config_schema:
     type: password
     required: true
 
-# 库超级用户口令只有一份:取自 system_config(由 supabase 服务现有的 POSTGRES_PASSWORD 收编,清单第 1 步),不在本服务配置里再抄一份
-secrets:
-  - env: PT_SUPERUSER_PASSWORD
-    from: system_config:supabase_postgres.password
-  # pgsodium 根密钥:每个成员(新机器也一样)启动前都从密钥库放进 db-config 卷;物理复制不带它(迁移清单第 1 步先从现主库取出存好)
-  - env: PT_PGSODIUM_ROOT_KEY
-    from: system_config:supabase_postgres.pgsodium_root_key
+# 两项口令与根密钥通过上面的默认引用取 system_config,测试可覆盖为独立引用,不复制正式密钥。
 
 exposed_ports:
   - 5000

@@ -23,6 +23,18 @@ def load_module(name, path):
 
 
 class PatroniTests(unittest.TestCase):
+    def test_service_configuration_isolates_rehearsal_with_unchanged_defaults(self):
+        manifest = yaml.safe_load((ROOT / '.deploy.patroni.yaml').read_text())
+        fields = {item['key']: item for item in manifest['config_schema']}
+        self.assertEqual(fields['PT_DATA_DIR']['default'], '/opt/supabase/docker/volumes/db/data')
+        self.assertEqual(fields['PT_SYNC']['default'], '')
+        for name, reference in [('PT_SUPERUSER_PASSWORD', 'system_config:supabase_postgres.password'),
+                                ('PT_PGSODIUM_ROOT_KEY', 'system_config:supabase_postgres.pgsodium_root_key')]:
+            self.assertEqual(fields[name]['default'], reference)
+            self.assertEqual(fields[name]['type'], 'password')
+            self.assertTrue(fields[name]['required'])
+            self.assertFalse(any(item['env'] == name for item in manifest.get('secrets', [])))
+
     def test_render(self):
         environment = {
             'PT_NAME': 'fixture', 'PT_HOST': '192.0.2.1',
