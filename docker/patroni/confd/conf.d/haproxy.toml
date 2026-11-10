@@ -4,4 +4,4 @@
 src = "haproxy.tmpl"
 dest = "/tmp/haproxy.cfg"
 keys = ["/members"]
-reload_cmd = "kill -USR2 1"
+reload_cmd = "python3 /opt/ha/ha-startup-state.py /tmp/haproxy.cfg --reload"

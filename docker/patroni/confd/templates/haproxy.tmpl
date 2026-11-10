@@ -2,11 +2,13 @@
 # 一个后端被判下线的那一刻掐断所有经它的连接,客户端连接池立刻重连到新主。
 global
     maxconn 4000
+    server-state-file /tmp/primary-startup.state
     # 重载后旧进程不再检查后端,最多保留旧会话 30 秒,然后由客户端重连。
     hard-stop-after 30s
     stats socket /tmp/haproxy.sock mode 600 level admin
 
 defaults
+    load-server-state-from-file global
     mode tcp
     log global
     retries 2

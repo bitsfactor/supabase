@@ -18,4 +18,5 @@ for h in $(echo "$PT_ETCD_HOSTS" | tr ',' ' '); do NODES="$NODES -node $h"; done
       -client-cert /tls/node.crt -client-key /tls/node.key -client-ca-keys /tls/ca.crt -log-level warn || true
     sleep 2
   done ) &
+python3 /opt/ha/ha-startup-state.py /tmp/haproxy.cfg
 exec haproxy -W -db -f /tmp/haproxy.cfg

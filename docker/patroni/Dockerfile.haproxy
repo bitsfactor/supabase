@@ -6,6 +6,6 @@ RUN apk add --no-cache python3 iptables openssh-client wget \
  && wget -q -O /usr/local/bin/confd https://github.com/kelseyhightower/confd/releases/download/v0.16.0/confd-0.16.0-linux-amd64 \
  && chmod +x /usr/local/bin/confd
 COPY confd /etc/confd
-COPY ha-entrypoint.sh tls-init.sh guard.py /opt/ha/
+COPY ha-entrypoint.sh tls-init.sh guard.py ha-startup-state.py /opt/ha/
 RUN chmod +x /opt/ha/ha-entrypoint.sh /opt/ha/tls-init.sh
 ENTRYPOINT ["/opt/ha/ha-entrypoint.sh"]

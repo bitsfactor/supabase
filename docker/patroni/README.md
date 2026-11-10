@@ -3,6 +3,10 @@
 库自动选主的镜像与配置:`Dockerfile`(supabase postgres + Patroni)、`Dockerfile.haproxy`(库入口 / 盯守 / 证书落地)、`service/`(平台标准部署用的 compose,清单见仓库根 `.deploy.patroni.yaml`)、`tls/gen-certs.sh`(私有 CA 与节点证书)、`guard.py`(两机房同时坏接管后的盯守)、`clients/` + `Dockerfile.clients`(演练用持续写入客户端)。
 方案与演练结果见 one 仓 `docs/db-switchover-smooth-progress.md`;应急操作走 one 的应急系统能力 `supabase.patroni_*`。
 
+## 入口启动与重载
+
+HAProxy 2.8 的初始 UP 状态不能证明成员是主库。`ha-startup-state.py` 在初次启动和每次 confd 重载之前，为需要 `/primary` 检查的后端写原生版本 1 状态文件：DOWN、健康计数零、检查启用；之后仍由 HAProxy 的原有检查决定上线。无检查的迁移期旧主备用后端保持原策略。没有新增选主逻辑或循环任务。
+
 ## 本地提交检查
 
 在子仓根运行 `scripts/install-hooks.sh`，只安装本仓提交前钩子，不动父仓或分支保护钩子；重复运行安全。若检测到自定义 `core.hooksPath`，为避免覆盖共享目录而拒绝安装。在 one 中保留共享钩子的前端、分支及部署配置检查，独立克隆直接执行后端门禁。父仓重新安装共享钩子后，仍会经约定入口调用 `scripts/oosp-lint.sh --staged`。
