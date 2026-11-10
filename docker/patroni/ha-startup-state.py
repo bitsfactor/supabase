@@ -30,7 +30,8 @@ def render_state(configuration):
         if not check_port.isdigit() or not 1 <= int(port) <= 65535 or not 1 <= int(check_port) <= 65535:
             raise ValueError('primary_backend_health_port_invalid')
         # 名称匹配，不强制后端/服务器编号；无维护位，检查保持启用，健康计数为零。
-        rows.append(f'1 pg_primary {server_index} {fields[1]} {host} 0 0 1 1 0 0 2 0 6 0 0 0 - {port} - 0 {check_port} - - 0')
+        # HCHK_STATUS_INI=1，result UNKNOWN=0；status=0 会使原生检查完成函数直接返回，永远不能恢复。
+        rows.append(f'1 pg_primary {server_index} {fields[1]} {host} 0 0 1 1 0 1 0 0 6 0 0 0 - {port} - 0 {check_port} - - 0')
     return '\n'.join(rows) + '\n'
 
 
